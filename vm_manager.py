@@ -3,7 +3,7 @@ import json
 import time
 import uuid
 
-class HyperVManager:
+class VirtualBoxManager:
     def __init__(self):
         self.vm_pool = []
         self.active_vms = {}
@@ -218,3 +218,21 @@ class HyperVManager:
         
         if vm_name in self.active_vms:
             del self.active_vms[vm_name]
+    def create_snapshot(self, vm_name, snapshot_name=None):
+        """Create a snapshot of the given VM"""
+        if not snapshot_name:
+            snapshot_name = f"EmergencySnapshot_{int(time.time())}"
+        cmd = [
+            "VBoxManage", "snapshot", vm_name, "take", snapshot_name, "--live"
+        ]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            if result.returncode == 0:
+                print(f"Snapshot '{snapshot_name}' created for VM '{vm_name}'")
+                return True
+            else:
+                print(f"Failed to create snapshot: {result.stderr}")
+                return False
+        except Exception as e:
+            print(f"Error creating snapshot: {e}")
+            return False
