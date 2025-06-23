@@ -1,10 +1,11 @@
 from entropy_analyzer import EntropyAnalyzer
-from vm_manager import HyperVManager
+from vm_manager import VirtualBoxManager
 from ml_analyzer import MLThreatAnalyzer
 from process_analyzer import ProcessTreeAnalyzer
 from process_hook import ProcessInterceptor
 from behavioral_analyzer import BehavioralAnalyzer
 from lolbins_ml_integration import LOLBinsDatabase, EnhancedMLThreatAnalyzer
+from lolbin_commands import LOLBinsDetector
 import asyncio
 import json
 import time
@@ -246,12 +247,14 @@ class EnhancedVoltTyphoonDetector:
 class SecurityGateway:
     def __init__(self):
         self.process_interceptor = ProcessInterceptor()
-        self.vm_manager = HyperVManager()
+        self.vm_manager = VirtualBoxManager()
         self.entropy_analyzer = EntropyAnalyzer()
         self.process_analyzer = ProcessTreeAnalyzer()
         self.lolbins_db = LOLBinsDatabase('full_lolbins_raw.txt')
         self.ml_analyzer = EnhancedMLThreatAnalyzer(self.lolbins_db)
         self.volt_detector = EnhancedVoltTyphoonDetector()
+        self.lolbins_detector = LOLBinsDetector()
+        self.lolbins_detector.load_model("lolbins_detector.pkl")
         
         # Cache for analyzed operations
         self.analysis_cache = {}
@@ -380,7 +383,13 @@ class SecurityGateway:
         pid = process_info['pid']
         
         # Skip system processes
-        system_names = {"System Idle Process", "System", "Registry", "smss.exe", "csrss.exe", "wininit.exe", "services.exe", "lsass.exe", "svchost.exe"}
+        system_names = {
+            "System Idle Process", "System", "Registry", "smss.exe", "csrss.exe", "wininit.exe",
+            "services.exe", "lsass.exe", "svchost.exe", "winlogon.exe", "explorer.exe",
+            "fontdrvhost.exe", "dwm.exe", "ctfmon.exe", "spoolsv.exe", "RuntimeBroker.exe",
+            "ShellExperienceHost.exe", "SearchIndexer.exe", "StartMenuExperienceHost.exe",
+            "conhost.exe", "taskhostw.exe", "AggregatorHost.exe", "LsaIso.exe", "msedgewebview2.exe"
+        }
         if process_info['name'] in system_names or process_info['pid'] == 0 or process_info['pid'] == 4:
             self.logger.info(f"Skipping system process: {process_info['name']} (PID: {process_info['pid']})")
             return
@@ -451,8 +460,22 @@ class SecurityGateway:
             command_line = process_info.get('cmdline', '')
             volt_analysis = self.volt_detector.analyze_for_volt_typhoon(process_info, command_line)
             analysis_results['analyses']['volt_typhoon'] = volt_analysis
+
+            # 4. LOLBins ML-based analysis
+            cmdline_str = process_info.get('cmdline', '')
+            lolbins_pred, lolbins_prob = self.lolbins_detector.predict([cmdline_str])
+            analysis_results['analyses']['lolbins_ml'] = {
+                'prediction': int(lolbins_pred[0]),
+                'probability': float(lolbins_prob[0])
+            }
             
-            # 4. Sandbox testing for high-risk processes
+            # --- Pattern match logic: if pattern matches, set risk high ---
+            if volt_analysis.get('is_volt_typhoon_like') or analysis_results['analyses']['lolbins_ml']['prediction'] == 1:
+                # Force high risk to trigger block
+                analysis_results['final_risk_score'] = 10.0
+                analysis_results['analyses']['pattern_matched'] = True
+                return analysis_results
+            # 5. Sandbox testing for high-risk processes
             initial_risk = process_info.get('risk_level', 1.0)
             volt_risk = volt_analysis.get('volt_typhoon_risk_score', 0.0)
             
@@ -462,7 +485,7 @@ class SecurityGateway:
             else:
                 analysis_results['analyses']['sandbox'] = {'skipped': True, 'reason': 'Low initial risk'}
                 
-            # 5. Calculate final risk score
+            # 6. Calculate final risk score
             final_risk = self._calculate_final_risk(analysis_results['analyses'])
             analysis_results['final_risk_score'] = final_risk
             
@@ -716,16 +739,13 @@ class SecurityGateway:
         risk_score = analysis_result.get('final_risk_score', 5.0)
         pid = process_info['pid']
         process_name = process_info['name']
-        
-        decision_data = {
-            'timestamp': datetime.now().isoformat(),
-            'process': process_name,
-            'pid': pid,
-            'risk_score': risk_score,
-            'analysis_result': analysis_result
-        }
-        
-        if risk_score < self.risk_thresholds['allow']:
+
+        # --- PowerShell Admin Exception ---
+        if process_name.lower() == "powershell.exe":
+            self.logger.info(f"EXCEPTION: Allowing PowerShell.exe (PID: {pid}) for admin/testing purposes.")
+            decision = 'ALLOW'
+            action = self._allow_process
+        elif risk_score < self.risk_thresholds['allow']:
             decision = 'ALLOW'
             action = self._allow_process
         elif risk_score < self.risk_thresholds['monitor']:
@@ -737,11 +757,18 @@ class SecurityGateway:
         else:
             decision = 'BLOCK'
             action = self._block_process
-            
-        decision_data['decision'] = decision
-        
+
+        decision_data = {
+            'timestamp': datetime.now().isoformat(),
+            'process': process_name,
+            'pid': pid,
+            'risk_score': risk_score,
+            'analysis_result': analysis_result,
+            'decision': decision
+        }
+
         self.logger.info(f"Decision for {process_name} (PID: {pid}): {decision} (Risk: {risk_score:.2f})")
-        
+
         # Execute decision
         try:
             await action(process_info, analysis_result)
@@ -750,7 +777,7 @@ class SecurityGateway:
             self.logger.error(f"Error executing decision {decision}: {e}")
             decision_data['action_successful'] = False
             decision_data['error'] = str(e)
-            
+
         # Log decision
         self._log_decision(decision_data)
         
