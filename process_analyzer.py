@@ -52,16 +52,19 @@ class ProcessTreeAnalyzer:
         # Trace ancestry
         ancestors = []
         current_pid = target_pid
-        while current_pid in self.process_graph:
-            node_data = self.process_graph.nodes[current_pid]
-            ancestors.append({
-                'pid': current_pid,
-                'name': node_data.get('name', 'Unknown'),
-                'cmdline': node_data.get('cmdline', []),
-                'create_time': node_data.get('create_time', 0)
-            })
-            parents = list(self.process_graph.predecessors(current_pid))
-            current_pid = parents[0] if parents else None
+        MAX_DEPTH = 15
+        depth = 0
+        while current_pid in self.process_graph and depth < MAX_DEPTH:
+                node_data = self.process_graph.nodes[current_pid]
+                ancestors.append({
+                    'pid': current_pid,
+                    'name': node_data.get('name', 'Unknown'),
+                    'cmdline': node_data.get('cmdline', []),
+                    'create_time': node_data.get('create_time', 0)
+                })
+                parents = list(self.process_graph.predecessors(current_pid))
+                current_pid = parents[0] if parents else None
+                depth += 1
 
         # Analyze patterns
         suspicious_patterns = []
