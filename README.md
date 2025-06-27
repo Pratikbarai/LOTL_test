@@ -19,12 +19,12 @@ This advanced security solution detects and blocks malicious processes in real-t
 - VirtualBox 7.0+ with Extension Pack
 - Administrator privileges
 
-##steps
--Install VirtualBox (Oracle)
--Enable Python virtual environment
--Open 5 to 6 Windows PowerShell or CMD
-(If se.py is running, then trying to open PowerShell or CMD will not work)
--Run se.py with Administrator privilege mode
--Perform Volt Typhoon attacks or LOLBins attack
--on 5 to 6 Windows PowerShell or CMD instances
--To close se.py, press ESC from keyboard
+## steps
+- Install VirtualBox (Oracle)
+- Enable Python virtual environment
+- Open 5 to 6 Windows PowerShell or CMD
+- (If se.py is running, then trying to open PowerShell or CMD will not work)
+- Run se.py with Administrator privilege mode
+- Perform Volt Typhoon attacks or LOLBins attack
+- on 5 to 6 Windows PowerShell or CMD instances
+- To close se.py, press ESC from keyboard
