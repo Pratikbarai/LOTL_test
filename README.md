@@ -30,6 +30,13 @@ This advanced security solution detects and blocks malicious processes in real-t
 ### 4.Run the main detection engine:
 - python se.py
 - Press ESC to terminate the monitoring safely.
+### For Testing in PowerShell
+- Open 5 to 6 Windows PowerShell or CMD instances
+- (If se.py is running, trying to open PowerShell or CMD will not work)
+- Run se.py with Administrator privilege mode
+- Perform Volt Typhoon or LOLBins attacks
+- on the 5 to 6 open PowerShell or CMD instances
+- To close se.py, press ESC on the keyboard
  
   ## Structure
 - security-gateway/
