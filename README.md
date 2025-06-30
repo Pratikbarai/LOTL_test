@@ -19,17 +19,17 @@ This advanced security solution detects and blocks malicious processes in real-t
 ## ⚙️ Setup
 
 ### 1. Clone the Repository
-git clone https://github.com/Pratikbarai/LOTL_test.git
-cd LOTL_test
+- git clone https://github.com/Pratikbarai/LOTL_test.git
+- cd LOTL_test
 ### 2. Install Dependencies
-pip install -r requirements.txt
+- pip install -r requirements.txt
 ### 3. Configure VirtualBox (Optional - For Sandbox Analysis)
-Create a VM named AnalysisVM (preferably Windows 10 or 11).
-Install Python and all necessary dependencies in the VM.
-Ensure VirtualBox is installed and accessible from your host system
+- Create a VM named AnalysisVM (preferably Windows 10 or 11).
+- Install Python and all necessary dependencies in the VM.
+- Ensure VirtualBox is installed and accessible from your host system
 ### 4.Run the main detection engine:
-python se.py
-Press ESC to terminate the monitoring safely.
+- python se.py
+- Press ESC to terminate the monitoring safely.
  
   ## Structure
 - security-gateway/
