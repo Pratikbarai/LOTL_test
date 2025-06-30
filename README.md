@@ -31,58 +31,58 @@ Ensure VirtualBox is installed and accessible from your host system
 python se.py
 Press ESC to terminate the monitoring safely.
  
-  ## Sructure
-security-gateway/
-│
-├── se.py                  # Main script
-├── entropy_analyzer.py    # Entropy analysis
-├── vm_manager.py          # VirtualBox integration
-├── ml_analyzer.py         # Base ML model
-├── enhanced_ml_analyzer.py # Extended ML model
-├── process_analyzer.py    # Process tree analysis
-├── behavioral_analyzer.py # Behavioral heuristics
-├── lolbins_ml_integration.py # LOLBin + ML integration
-├── lolbin_detector.py     # LOLBin pattern definitions
-├── requirements.txt       # Python dependencies
-├── README.md              # Project documentation
-└── config.json            # (Optional) Configuration
+  ## Structure
+- security-gateway/
+- │
+- ├── se.py                  # Main script
+- ├── entropy_analyzer.py    # Entropy analysis
+- ├── vm_manager.py          # VirtualBox integration
+- ├── ml_analyzer.py         # Base ML model
+- ├── enhanced_ml_analyzer.py # Extended ML model
+- ├── process_analyzer.py    # Process tree analysis
+- ├── behavioral_analyzer.py # Behavioral heuristics
+- ├── lolbins_ml_integration.py # LOLBin + ML integration
+- ├── lolbin_detector.py     # LOLBin pattern definitions
+- ├── requirements.txt       # Python dependencies
+- ├── README.md              # Project documentation
+- └── config.json            # (Optional) Configuration
 
 
-- 1. se.py
+### 1. se.py
 - Main Controller
 - Starts/stops the security scanner.
 - Combines all other modules to detect and block threats.
 
-- 2. lolbin_detector.py
+### 2. lolbin_detector.py
 - LOLBin Sniffer
 - Detects malicious use of tools like cmd.exe, powershell.exe.
 - Example: Blocks certutil -decode (used to decode malware).
 
-- 3. entropy_analyzer.py
+### 3. entropy_analyzer.py
 - Obfuscation Detector
 - Checks if files/scripts are hidden/packed (common in malware).
 
-- 4. behavioral_analyzer.py
+### 4. behavioral_analyzer.py
 - Suspicious Activity Monitor
 - Flags weird process chains (e.g., explorer.exe → cmd.exe → malware.exe).
 
-- 5. ml_analyzer.py
+### 5. ml_analyzer.py
 - AI Threat Scoring
 - Uses machine learning to rate process risk (0-10).
 
-- 6. vm_manager.py
+### 6. vm_manager.py
 - Sandbox Boss
 - Runs suspicious commands in a safe VirtualBox VM.
 
-- 7. process_analyzer.py
+### 7. process_analyzer.py
 - Process Tree Mapper
 - Tracks parent/child processes to find hidden threats.
 
-- 8. volt_typhoon_detector.py
+### 8. volt_typhoon_detector.py
 - APT Specialist
 - Catches advanced hacker tricks (e.g., netsh portproxy for tunneling).
 
-- 9. process_interceptor.py
+### 9. process_interceptor.py
 - Process Freezer
 - Freezes bad processes using Windows debug APIs.
 
