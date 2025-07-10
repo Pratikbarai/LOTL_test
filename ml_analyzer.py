@@ -3,14 +3,16 @@ import numpy as np
 from sklearn.ensemble import IsolationForest, RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
 import re
+import logging
 from datetime import datetime
 
 class MLThreatAnalyzer:
     def __init__(self):
-        self.isolation_forest = IsolationForest(contamination=0.1, random_state=42)
+        self.isolation_forest = IsolationForest(contamination='auto', random_state=42)
         self.classifier = RandomForestClassifier(n_estimators=100, random_state=42)
         self.scaler = StandardScaler()
         self.trained = False
+        self.logger = logging.getLogger(__name__)
 
         # LOLBins often abused in LotL and APTs like Volt Typhoon
         self.lolbins = [
@@ -77,6 +79,7 @@ class MLThreatAnalyzer:
             'tasklist', 'nltest /domain_trusts', 'dsquery'
         ]
         features.append(sum(1 for kw in volt_typhoon_indicators if kw in cmdline))
+        
         # 12. Netsh proxy manipulation
         netsh_proxy_patterns = ['netsh interface portproxy', 'netsh winhttp set proxy']
         features.append(sum(1 for pattern in netsh_proxy_patterns if pattern in cmdline))
@@ -101,7 +104,7 @@ class MLThreatAnalyzer:
         evasion_patterns = ['-windowstyle hidden', '-executionpolicy bypass', 'certutil -urlcache']
         features.append(sum(1 for pattern in evasion_patterns if pattern in cmdline))
         
-        # 18. Base64 encoding detection (improved)
+        # 18. Base64 encoding detection
         b64_pattern = r'[A-Za-z0-9+/]{40,}={0,2}'
         features.append(1 if re.search(b64_pattern, cmdline) else 0)
         
@@ -118,6 +121,21 @@ class MLThreatAnalyzer:
         current_hour = datetime.now().hour
         features.append(1 if current_hour < 6 or current_hour > 22 else 0)
         
+        # 21. High-severity LOLBins
+        high_severity_lolbins = ['powershell.exe', 'rundll32.exe', 'regsvr32.exe', 'certutil.exe', 'msbuild.exe']
+        features.append(1 if name in high_severity_lolbins else 0)
+        
+        # 22. Medium-severity LOLBins
+        medium_severity_lolbins = ['cmd.exe', 'bitsadmin.exe', 'wmic.exe', 'msiexec.exe']
+        features.append(1 if name in medium_severity_lolbins else 0)
+
+        # Ensure exactly 22 features
+        if len(features) != 22:
+            self.logger.warning(f"Feature count mismatch: {len(features)} features, expected 22")
+            # Pad or truncate to exactly 22 features
+            while len(features) < 22:
+                features.append(0)
+            features = features[:22]
 
         return np.array(features).reshape(1, -1)
 
@@ -125,13 +143,39 @@ class MLThreatAnalyzer:
         if not normal_processes:
             return False
 
-        training_features = [self.extract_features(proc).flatten() for proc in normal_processes]
-        X_train = np.array(training_features)
-        X_scaled = self.scaler.fit_transform(X_train)
-
-        self.isolation_forest.fit(X_scaled)
-        self.trained = True
-        return True
+        try:
+            self.logger.info(f"Training ML model with {len(normal_processes)} samples...")
+            
+            # Extract features from all training samples
+            training_features = []
+            for proc in normal_processes:
+                try:
+                    features = self.extract_features(proc).flatten()
+                    training_features.append(features)
+                except Exception as e:
+                    self.logger.warning(f"Failed to extract features from sample: {e}")
+                    continue
+            
+            if len(training_features) < 10:
+                self.logger.error("Insufficient training data - need at least 10 samples")
+                return False
+            
+            X_train = np.array(training_features)
+            self.logger.info(f"Training data shape: {X_train.shape}")
+            
+            # Scale the features
+            X_scaled = self.scaler.fit_transform(X_train)
+            
+            # Train the isolation forest
+            self.isolation_forest.fit(X_scaled)
+            self.trained = True
+            
+            self.logger.info("✅ ML model training completed successfully")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error during ML training: {e}")
+            return False
 
     def predict_threat(self, process_info):
         if not self.trained:

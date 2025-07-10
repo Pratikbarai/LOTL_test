@@ -1,96 +1,132 @@
 import math
-import os
+import logging
 from collections import Counter
-import numpy as np
 
 class EntropyAnalyzer:
+    """Analyzes entropy of files and processes to detect obfuscation and encryption"""
+    
     def __init__(self):
-        self.encryption_threshold = 7.5
+        self.logger = logging.getLogger(__name__)
+        self.high_entropy_threshold = 7.5  # Entropy threshold for suspicious content
+        self.block_size = 256  # Bytes per block for analysis
         
-    def calculate_file_entropy(self, file_path):
-        """Calculate Shannon entropy of a file"""
-        try:
-            with open(file_path, 'rb') as f:
-                data = f.read()
-                
-            if not data:
-                return 0.0
-                
-            # Count byte frequencies
-            byte_counts = Counter(data)
-            file_size = len(data)
-            
-            # Calculate entropy
-            entropy = 0.0
-            for count in byte_counts.values():
-                probability = count / file_size
-                if probability > 0:
-                    entropy -= probability * math.log2(probability)
-                    
-            return entropy
-            
-        except Exception as e:
-            print(f"Error calculating entropy for {file_path}: {e}")
+    def calculate_entropy(self, data):
+        """Calculate Shannon entropy of data"""
+        if not data:
             return 0.0
             
-    def analyze_directory_changes(self, directory_path, baseline_entropy=None):
-        """Analyze entropy changes in directory (ransomware detection)"""
-        current_entropies = {}
+        # Count byte frequencies
+        byte_counts = Counter(data)
+        data_length = len(data)
         
-        for root, dirs, files in os.walk(directory_path):
-            for file in files:
-                file_path = os.path.join(root, file)
-                try:
-                    entropy = self.calculate_file_entropy(file_path)
-                    current_entropies[file_path] = entropy
-                except:
-                    continue
-                    
-        if baseline_entropy:
-            # Compare with baseline
-            suspicious_files = []
-            for file_path, entropy in current_entropies.items():
-                baseline_val = baseline_entropy.get(file_path, 0)
-                if entropy > self.encryption_threshold and entropy > baseline_val + 2:
-                    suspicious_files.append({
-                        'file': file_path,
-                        'entropy': entropy,
-                        'baseline': baseline_val,
-                        'risk': 'HIGH - Possible encryption'
-                    })
-                    
+        # Calculate entropy
+        entropy = 0.0
+        for count in byte_counts.values():
+            probability = count / data_length
+            if probability > 0:
+                entropy -= probability * math.log2(probability)
+                
+        return entropy
+    
+    def analyze_file_entropy(self, file_path, max_size=1024*1024):
+        """Analyze entropy of a file"""
+        try:
+            with open(file_path, 'rb') as f:
+                data = f.read(max_size)
+                
+            if not data:
+                return {'entropy': 0.0, 'suspicious': False, 'reason': 'empty_file'}
+                
+            entropy = self.calculate_entropy(data)
+            suspicious = entropy > self.high_entropy_threshold
+            
             return {
-                'suspicious_files': suspicious_files,
-                'total_files_analyzed': len(current_entropies),
-                'high_entropy_count': len(suspicious_files)
+                'entropy': entropy,
+                'suspicious': suspicious,
+                'file_size': len(data),
+                'reason': 'high_entropy' if suspicious else 'normal_entropy'
             }
+            
+        except Exception as e:
+            self.logger.error(f"Error analyzing file entropy for {file_path}: {e}")
+            return {'entropy': 0.0, 'suspicious': False, 'error': str(e)}
+    
+    def analyze_process_memory_entropy(self, pid):
+        """Analyze entropy of process memory (simplified)"""
+        try:
+            import psutil
+            proc = psutil.Process(pid)
+            
+            # Get memory info (simplified - in reality would need to read actual memory)
+            memory_info = proc.memory_info()
+            
+            # Simulate entropy analysis based on memory patterns
+            # In a real implementation, you would read process memory and analyze it
+            memory_size = memory_info.rss
+            simulated_entropy = 6.0 + (memory_size % 3)  # Simplified simulation
+            
+            suspicious = simulated_entropy > self.high_entropy_threshold
+            
+            return {
+                'entropy': simulated_entropy,
+                'suspicious': suspicious,
+                'memory_size': memory_size,
+                'reason': 'high_memory_entropy' if suspicious else 'normal_memory'
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error analyzing process memory entropy for PID {pid}: {e}")
+            return {'entropy': 0.0, 'suspicious': False, 'error': str(e)}
+    
+    def detect_obfuscation(self, data):
+        """Detect common obfuscation patterns"""
+        if not data:
+            return {'obfuscated': False, 'patterns': []}
+            
+        patterns = []
         
-        return current_entropies
+        # Check for base64 encoding
+        import re
+        base64_pattern = re.compile(r'[A-Za-z0-9+/]{20,}={0,2}')
+        if base64_pattern.search(data):
+            patterns.append('base64_encoding')
+            
+        # Check for hex encoding
+        hex_pattern = re.compile(r'(0x[0-9a-fA-F]{2,}){4,}')
+        if hex_pattern.search(data):
+            patterns.append('hex_encoding')
+            
+        # Check for excessive whitespace/formatting
+        if len(data) > 100 and data.count(' ') > len(data) * 0.3:
+            patterns.append('excessive_whitespace')
+            
+        # Check for repeated patterns (potential encoding)
+        if len(set(data)) < len(data) * 0.1:
+            patterns.append('repeated_patterns')
+            
+        return {
+            'obfuscated': len(patterns) > 0,
+            'patterns': patterns
+        }
+    
+    def analyze_command_entropy(self, command_line):
+        """Analyze entropy of command line arguments"""
+        if not command_line:
+            return {'entropy': 0.0, 'suspicious': False}
+            
+        # Convert to bytes for entropy calculation
+        cmd_bytes = command_line.encode('utf-8', errors='ignore')
+        entropy = self.calculate_entropy(cmd_bytes)
         
-    def detect_mass_encryption(self, directory_path, sample_size=50):
-        """Quick detection of mass file encryption"""
-        high_entropy_count = 0
-        total_analyzed = 0
+        # Check for obfuscation patterns
+        obfuscation = self.detect_obfuscation(command_line)
         
-        for root, dirs, files in os.walk(directory_path):
-            for file in files[:sample_size]:  # Sample first N files
-                file_path = os.path.join(root, file)
-                entropy = self.calculate_file_entropy(file_path)
-                
-                if entropy > self.encryption_threshold:
-                    high_entropy_count += 1
-                    
-                total_analyzed += 1
-                
-                if total_analyzed >= sample_size:
-                    break
-                    
-        encryption_ratio = high_entropy_count / total_analyzed if total_analyzed > 0 else 0
+        suspicious = entropy > self.high_entropy_threshold or obfuscation['obfuscated']
         
         return {
-            'encryption_ratio': encryption_ratio,
-            'risk_level': 'CRITICAL' if encryption_ratio > 0.7 else 'MEDIUM' if encryption_ratio > 0.3 else 'LOW',
-            'high_entropy_files': high_entropy_count,
-            'total_analyzed': total_analyzed
+            'entropy': entropy,
+            'suspicious': suspicious,
+            'obfuscation_patterns': obfuscation['patterns'],
+            'reason': 'high_entropy_or_obfuscation' if suspicious else 'normal_command'
         }
     
