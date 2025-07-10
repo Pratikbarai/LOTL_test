@@ -109,7 +109,7 @@ class ProcessTreeAnalyzer:
             if memory_info.rss > 500 * 1024 * 1024:
                 return {'risk': 'MEDIUM', 'reason': 'High memory usage'}
 
-            connections = proc.connections()
+            connections = proc.net_connections()
             external_connections = [
                 conn for conn in connections
                 if conn.status == 'ESTABLISHED' and

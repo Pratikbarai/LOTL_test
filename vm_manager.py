@@ -17,12 +17,46 @@ class VirtualBoxManager:
         # Create VMs on demand instead of pre-defined names
         self._initialize_vm_pool()
     def _initialize_vm_pool(self):
-        """Create VMs for the pool"""
-        with self.lock:
-            for _ in range(2):  # Create 2 VMs
-                vm_name = self.create_sandbox_vm()
-                if vm_name:
-                    self.vm_pool.append(vm_name)
+        """Initialize VM pool for sandbox operations"""
+        # Create 2-3 VMs for the pool
+        for i in range(3):
+            vm_name = self.create_sandbox_vm()
+            if vm_name:
+                self.vm_pool.append(vm_name)
+                self.logger.info(f"Created VM for pool: {vm_name}")
+            else:
+                self.logger.error(f"Failed to create VM {i+1} for pool")
+    
+    def prepare_vms_for_snapshots(self):
+        """Prepare VMs for snapshot operations by starting them"""
+        self.logger.info("Preparing VMs for snapshot operations...")
+        
+        for vm_name in self.vm_pool:
+            try:
+                # Check if VM exists
+                vm_info = self._run_vbox_command(["showvminfo", vm_name, "--machinereadable"])
+                if not vm_info['success']:
+                    self.logger.warning(f"VM '{vm_name}' not found, skipping")
+                    continue
+                
+                # Check if VM is running
+                if not self._is_vm_running(vm_name):
+                    self.logger.info(f"Starting VM '{vm_name}' for snapshot preparation...")
+                    start_result = self._run_vbox_command(["startvm", vm_name, "--type", "headless"])
+                    
+                    if start_result['success']:
+                        self.logger.info(f"VM '{vm_name}' started successfully")
+                        # Wait a bit for VM to fully boot
+                        time.sleep(10)
+                    else:
+                        self.logger.error(f"Failed to start VM '{vm_name}': {start_result['error']}")
+                else:
+                    self.logger.info(f"VM '{vm_name}' is already running")
+                    
+            except Exception as e:
+                self.logger.error(f"Error preparing VM '{vm_name}': {e}")
+        
+        self.logger.info("VM preparation completed")
         
     def get_available_vm(self):
         """Get an available VM from the pool"""
@@ -44,9 +78,29 @@ class VirtualBoxManager:
         
         # Try all VMs in pool
         for vm_name in self.vm_pool:
-            result = self.create_snapshot(vm_name)
-            if result:
-                return result
+            self.logger.info(f"Attempting emergency snapshot on VM: {vm_name}")
+            
+            # Check if VM exists and is accessible
+            vm_info = self._run_vbox_command(["showvminfo", vm_name, "--machinereadable"])
+            if not vm_info['success']:
+                self.logger.warning(f"VM '{vm_name}' not accessible, trying next VM")
+                continue
+            
+            # Check if we can acquire lock for this VM
+            try:
+                # Try to create snapshot with proper error handling
+                snapshot_name = f"EmergencySnapshot_{int(time.time())}"
+                if self.create_snapshot(vm_name, snapshot_name):
+                    self.logger.info(f"Emergency snapshot '{snapshot_name}' created successfully on VM: {vm_name}")
+                    return {"status": "success", "vm": vm_name, "snapshot": snapshot_name}
+                else:
+                    self.logger.warning(f"Failed to create snapshot on VM: {vm_name}, trying next VM")
+                    continue
+            except Exception as e:
+                self.logger.warning(f"Could not acquire lock for VM: {vm_name}")
+                continue
+        
+        self.logger.error("All VM snapshot attempts failed")
         return {"status": "error", "message": "All snapshot attempts failed"}
 
     def _find_vboxmanage(self):
@@ -305,16 +359,70 @@ class VirtualBoxManager:
         """Create a snapshot of the given VM"""
         if not snapshot_name:
             snapshot_name = f"EmergencySnapshot_{int(time.time())}"
+        
+        # Check if VM exists
+        vm_info = self._run_vbox_command(["showvminfo", vm_name, "--machinereadable"])
+        if not vm_info['success']:
+            self.logger.error(f"VM '{vm_name}' not found")
+            return False
+        
+        # Check VM state
+        is_running = self._is_vm_running(vm_name)
+        
+        if is_running:
+            # VM is running - create live snapshot
+            result = self._run_vbox_command([
+                "snapshot", vm_name, "take", snapshot_name, 
+                "--description", "Emergency snapshot for security analysis",
+                "--live"
+            ])
+        else:
+            # VM is stopped - start it first, then create snapshot
+            self.logger.info(f"Starting VM '{vm_name}' for snapshot creation...")
+            start_result = self._run_vbox_command(["startvm", vm_name, "--type", "headless"])
             
-        result = self._run_vbox_command([
-            "snapshot", vm_name, "take", snapshot_name, 
-            "--description", "Emergency snapshot for security analysis",
-            "--live"
-        ])
+            if not start_result['success']:
+                self.logger.error(f"Failed to start VM '{vm_name}': {start_result['error']}")
+                return False
+            
+            # Wait for VM to boot
+            time.sleep(30)
+            
+            # Create live snapshot
+            result = self._run_vbox_command([
+                "snapshot", vm_name, "take", snapshot_name, 
+                "--description", "Emergency snapshot for security analysis",
+                "--live"
+            ])
         
         if result['success']:
             self.logger.info(f"Snapshot '{snapshot_name}' created for VM '{vm_name}'")
             return True
         else:
             self.logger.error(f"Failed to create snapshot: {result['error']}")
+            return False
+    def restore_snapshot(self, vm_name, snapshot_name):
+        """Restore a VM to a specific snapshot"""
+        # First, power off the VM if it's running
+        if self._is_vm_running(vm_name):
+            self.logger.info(f"Powering off VM '{vm_name}' before snapshot restoration...")
+            poweroff_result = self._run_vbox_command(["controlvm", vm_name, "poweroff"])
+            if not poweroff_result['success']:
+                self.logger.warning(f"Failed to power off VM '{vm_name}': {poweroff_result['error']}")
+                # Try force power off
+                self._run_vbox_command(["controlvm", vm_name, "acpipowerbutton"])
+                time.sleep(5)
+        
+        # Wait a moment for VM to fully stop
+        time.sleep(2)
+        
+        # Now restore the snapshot
+        result = self._run_vbox_command([
+            "snapshot", vm_name, "restore", snapshot_name
+        ])
+        if result['success']:
+            self.logger.info(f"Restored VM '{vm_name}' to snapshot '{snapshot_name}'")
+            return True
+        else:
+            self.logger.error(f"Failed to restore snapshot: {result['error']}")
             return False

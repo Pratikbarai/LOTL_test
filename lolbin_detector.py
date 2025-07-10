@@ -1,3 +1,4 @@
+# lolbin_detector.py
 import re
 from collections import defaultdict
 from datetime import datetime
@@ -15,12 +16,13 @@ class LOLBinDetector:
         self.severity_map = self._create_severity_map()
         self.cache = {}  # Initialize cache
         self.cache_size = 1000  # Set cache size
+        
     def _load_lolbin_patterns(self):
         """Load optimized patterns from the raw commands"""
         LOLBIN_PATTERNS={
             # AddinUtil.exe patterns
             'AddinUtil.exe': [
-                r'-AddinRoot:\.?\\?',
+                r'-AddinRoot:\.?\\.?\\?',
                 r'-PipelineStoreDir:[^\s]+',
                 r'-HostView:[^\s]+',
                 r'-Addin:[^\s]+\.dll'
@@ -92,6 +94,13 @@ class LOLBinDetector:
             
             # certutil.exe patterns
             'certutil.exe': [
+                r'certutil(\.exe)?\s+-urlcache\s+(?:-split\s+)?-f\s+https?://',
+                r'certutil(\.exe)?\s+-urlcache\s+-f\s+https?://[^\s]+\s+[^\s]+',
+
+                # Obfuscated encode/decode commands
+                r'certutil\s+-[de]+n?code',
+                r'-urlcache\s+-f\s+https?://[^\s]+\s+[^\s]+:[^\s]+',
+                r'-urlcache\s+(?:-split\s+)?-f\s+https?://[^\s]+\s+[^\s]+',
                 r'-urlcache\s+-f\s+https?://[^\s]+\s+[^\s]+',
                 r'-verifyctl\s+-f\s+https?://[^\s]+',
                 r'-URL\s+https?://[^\s]+',
@@ -105,9 +114,26 @@ class LOLBinDetector:
             'cipher.exe': [
                 r'/w:\s*[cC]:\\windows\\temp\\[^\s]+'
             ],
+            'forfiles.exe': [
+                r'/c\s+"cmd\s+/c\s+[^"]+"'
+]
+,
             
             # cmd.exe patterns
             'cmd.exe': [
+                r'/c\s+.*?(curl|bitsadmin|certutil|powershell)[\x00-\x20]+',
+                # Echo to create script files
+                r'echo\s+.*?>\s+.*?\.(vbs|js|bat)',
+                # String concatenation with environment variables
+                r'%[A-Z]+%.*%[A-Z]+%'
+                r'forfiles\s+/[^\s]+\s+/m\s+[^\s]+\s+/c\s+"cmd\s+/c\s+[^"]+"',
+                r'cmd\s+/c\s+[^\s]+\.exe\s+&&\s+cmd\s+/c\s+[^\s]+\.exe',
+                 # Alternate Data Stream (ADS) - hide payload
+                r'type\s+[^\s]+\.(exe|dll|bat|cmd|ps1)\s+>\s+[^\s]+:[^\s]+',
+                # Execute ADS payload
+                r'start\s+\.?\\?[^\s]+:[^\s]+',
+                # (Optional) echo into ADS
+                r'echo\s+.+\s+>\s+[^\s]+:[^\s]+',
                 r'/c\s+echo\s+regsvr32\.exe\s+\^/s\s+\^/u\s+\^/i:https?://[^\s]+\s+\^scrobj\.dll\s+>\s+\S+:payload\.bat',
                 r'-\s*<\s*\S+:payload\.bat',
                 r'set\s+comspec\s*=\s*[^&]+\.exe\s*&\s*cscript\s+[^\s"]*manage-bde\.wsf',
@@ -280,6 +306,14 @@ class LOLBinDetector:
             
             # forfiles.exe patterns
             'forfiles.exe': [
+                # Basic: forfiles with command execution using cmd.exe
+                r'/c\s+"?cmd\s+/c\s+[^\s"]+"?',
+                # Match for suspicious inline execution of known LOLBins (powershell, wscript, etc.)
+                r'/c\s+"?(cmd|powershell|wscript|cscript|rundll32|mshta)(\.exe)?\s+/c\s+[^\s"]+"?',
+                # Targeting specific extensions (commonly abused)
+                r'/m\s+\*\.(exe|ps1|vbs|bat|cmd|js)',
+                # Match combination of /p path + /c execution
+                r'/p\s+[^\s]+\s+/m\s+\*\.[^\s]+\s+/c\s+"?cmd\s+/c\s+[^\s"]+"?'
                 r'/p\s+c:\\windows\\system32\s+/m\s+\w+\.exe\s+/c\s+"cmd\s+/c\s+c:\\windows\\system32\\calc\.exe"',
                 r'/p\s+c:\\windows\\system32\s+/m\s+\w+\.exe\s+/c\s+"C:\\Windows\\Temp\\[^\s]+:[^\s]+"'
             ],
@@ -344,7 +378,12 @@ class LOLBinDetector:
             # InstallUtil.exe patterns
             'InstallUtil.exe': [
                 r'/logfile=\s+/LogToConsole=false\s+/U\s+[^\s]+\.dll',
-                r'https?://[^\s]+\.ext'
+                r'https?://[^\s]+\.ext',
+                r'/logfile=\s+/LogToConsole=false\s+/U\s+[^\s]+\.dll',
+                r'/U\s+[^\s]+\.dll',  # Simpler variant if flags are missing
+                r'/U\s+(?:[a-zA-Z]:)?\\[^\s]+\.dll',  # Absolute path DLL
+                r'/logfile=[^\s]*\s+/U\s+[^\s]+\.dll',
+                r'/logfile=\s+/U\s+[^\s]+\.dll'
             ],
             
             # jsc.exe patterns
@@ -396,7 +435,11 @@ class LOLBinDetector:
                 r'[^\s]+\.csproj',
                 r'/logger:TargetLogger,C:\\Windows\\Temp\\[^\s]+\.dll;MyParameters,[^\s]+',
                 r'[^\s]+\.proj',
-                r'@file\.rsp'
+                r'@file\.rsp',
+                 # Suspicious location for .proj files (e.g., dropped by malware)
+                r'(AppData|Temp|\\Users\\[^\\]+\\Downloads)\\[^\s]+\.proj',
+                # Inline C#/VB.NET code inside .proj files (if content is parsed)
+                r'<Task\s+[^>]*>\s*<Code\s+[^>]*Language="(C#|VB)"\s*>'
             ],
             
             # msconfig.exe patterns
@@ -419,12 +462,29 @@ class LOLBinDetector:
             
             # mshta.exe patterns
             'mshta.exe': [
-                r'[^\s]+\.hta',
-                r'vbscript:Close\(Execute\("GetObject\("+"script:https?://[^\s]+\.sct"\)\)\)',
-                r'javascript:a=GetObject\("script:https?://[^\s]+\.sct"\)\.Exec\(\);close\(\);',
-                r'C:\\Windows\\Temp\\[^\s]+:[^\s]+\.hta',
-                r'https?://[^\s]+\.ext'
-            ],
+                    # Remote HTA execution
+                    r'mshta\.exe\s+"?https?://[^\s"]+\.hta"?',
+                    r'mshta(\.exe)?\s+((http|https|file):|["\']?javascript:)',
+                    # Obfuscated JavaScript inline
+                    r'javascript\s*:[\s\S]*document\.write',
+            
+                    # Embedded script protocol abuse (inline js or vbscript)
+                    r'mshta\s+["\']?(javascript|vbscript):[^\s"\']+["\']?',
+                    # Obfuscated script loading from remote SCT via VBScript
+                    r'vbscript:Close\(Execute\("GetObject\("+"script:https?://[^\s"]+\.sct"\)\)\)',
+                    r'javascript:a=GetObject\("script:https?://[^\s"]+\.sct"\)\.Exec\(\);close\(\);',
+                    # Local HTA file execution
+                    r'mshta\.exe\s+[a-zA-Z]:\\[^\s"]+\.hta',
+                    # HTA files from suspicious folders
+                    r'(AppData|Temp|\\Users\\[^\\]+\\Downloads)\\[^\s"]+\.hta',
+                    # ADS-style HTA execution
+                    r'C:\\Windows\\Temp\\[^\s]+:[^\s]+\.hta',
+                    # Generic .hta execution (fallback catch-all)
+                    r'[^\s"]+\.hta',
+                    # Miscellaneous or typo-tolerant extensions
+                    r'https?://[^\s"]+\.ext'
+                ],  
+
             
             # msiexec.exe patterns
             'msiexec.exe': [
@@ -436,7 +496,21 @@ class LOLBinDetector:
             
             # netsh.exe patterns
             'netsh.exe': [
-                r'add\s+helper\s+C:\\Windows\\Temp\\[^\s]+\.dll'
+                r'add\s+helper\s+C:\\Windows\\Temp\\[^\s]+\.dll',
+                # DLL sideloading via add helper
+                r'add\s+helper\s+[a-zA-Z]:\\[^\s]+\.dll',
+                # Port proxy setup (commonly used in C2 traffic tunneling)
+                r'interface\s+portproxy\s+add\s+v4tov4\s+listenport=\d+\s+connectaddress=[^\s]+\s+connectport=\d+',
+                # Persistent firewall rule manipulation (evasion or backdoor)
+                r'advfirewall\s+firewall\s+add\s+rule\s+name="[^"]*"\s+dir=in\s+action=allow\s+program="?[^\s"]+\.exe"?',
+                # Remove firewall rule (evading detection or cleanup)
+                r'advfirewall\s+firewall\s+delete\s+rule\s+name="[^"]+"',
+                # Disable Windows firewall completely
+                r'advfirewall\s+set\s+allprofiles\s+state\s+off',
+                # Adding forwarding rules (used in pivoting/tunneling)
+                r'interface\s+portproxy\s+add\s+v4tov4\s+.*',
+                # General helper DLLs in temp locations (flexible pattern)
+                r'add\s+helper\s+(AppData|Temp|\\Users\\[^\\]+\\Downloads)\\[^\s]+\.dll'
             ],
             
             # ngen.exe patterns
@@ -561,8 +635,25 @@ class LOLBinDetector:
             
             # regsvr32.exe patterns
             'regsvr32.exe': [
+                # Basic HTTP-based SCT pattern (common LOLBin)
+                r'/i:https?://[^\s]+\.sct\s+scrobj\.dll',
+                        # With optional flags in any order (evasion attempts)
+                r'(/s\s+)?(/n\s+)?(/u\s+)?/i:https?://[^\s]+\.sct\s+scrobj\.dll',
+                r'(/n\s+)?(/s\s+)?(/u\s+)?/i:https?://[^\s]+\.sct\s+scrobj\.dll',
+                r'(/u\s+)?(/n\s+)?(/s\s+)?/i:https?://[^\s]+\.sct\s+scrobj\.dll',
+                        # File path SCT (local .sct dropped to disk)
+                r'/i:file:///[^\s]+\.sct\s+scrobj\.dll',
+                        # Non-standard / protocol-bypass tricks
+                r'/i:(mshta|vbscript|jscript):[^\s]+',
+                        # SCT followed by scrobj.dll with any flags
+                r'/i:[^\s]+\.sct\s+scrobj\.dll',
+                        # Any URL ending with .sct followed by scrobj.dll
+                r'https?://[^\s]+\.sct\s+scrobj\.dll',
+                        # Highly flexible fallback: any .sct and scrobj.dll in one line
+                r'[^\s]+\.sct.*scrobj\.dll',
                 r'/s\s+/n\s+/u\s+/i:https?://[^\s]+\.sct\s+scrobj\.dll',
-                r'/s\s+/u\s+/i:[^\s]+\.sct\s+scrobj\.dll'
+                r'/s\s+/u\s+/i:[^\s]+\.sct\s+scrobj\.dll',
+                r'regsvr32(\.exe)?\s+/s\s+/n\s+/u\s+/i\s+(http|https|file):'
             ],
             
             # replace.exe patterns
@@ -579,7 +670,11 @@ class LOLBinDetector:
             
             # rundll32.exe patterns
             'rundll32.exe': [
+                r'rundll32(\.exe)?\s+[\w\-.\\]+\.dll,\s*\w+',
+                r'rundll32\s+.*,[\s\'+"]*[\w]{2,}',
                 r'javascript:.*script:https?://',
+                r'javascript:.*GetObject\("script:https?://',
+                r'javascript:"\\\.\.\\mshtml,RunHTMLApplication"',
                 r',ShOpenVerbApplication\s+https?://',
                 r',InstallScreenSaver\s+\S+\.scr',
                 r',RegisterOCX\s+\S+\.(dll|exe)',
@@ -645,7 +740,17 @@ class LOLBinDetector:
             # schtasks.exe patterns
             'schtasks.exe': [
                 r'/create\s+/sc\s+minute\s+/mo\s+\d+\s+/tn\s+".*?"\s+/tr\s+"cmd\s+/c\s+c:\\windows\\system32\\[^\s]+"',
-                r'/create\s+/s\s+[^\s]+\s+/tn\s+".*?"\s+/tr\s+"cmd\s+/c\s+c:\\windows\\system32\\[^\s]+"\s+/sc\s+daily'
+                r'/create\s+/s\s+[^\s]+\s+/tn\s+".*?"\s+/tr\s+"cmd\s+/c\s+c:\\windows\\system32\\[^\s]+"\s+/sc\s+daily',
+                # Typical malicious task creation with embedded payload
+                r'/create\s+/tn\s+[^\s]+\s+/tr\s+"?cmd\.exe\s+/c\s+[^\s"]+"?\s+/sc\s+onlogon',
+                # General suspicious /create with any command in /tr
+                r'/create\s+/tn\s+[^\s]+\s+/tr\s+"?[^\s]+\.exe(\s+[^\s"]+)*"?\s+/sc\s+\w+',
+    
+                   # More relaxed match for command line payloads
+                r'/create\s+/tn\s+[^\s]+\s+/tr\s+"?.*?(powershell|cmd|wscript|cscript|mshta|rundll32).*"?',
+    
+                # Suspicious task triggers (logon, boot, unlock, etc.)
+                r'/sc\s+(onlogon|onstart|onboot|onidle|onunlock)'
             ],
             
             # scriptrunner.exe patterns
@@ -761,6 +866,16 @@ class LOLBinDetector:
             
             # wscript.exe patterns
             'wscript.exe': [
+                # Basic pattern: executing a .vbs file
+                r'\s+[^\s]+\.vbs',
+                # Suspicious command line with URLs (remote payloads)
+                r'https?://[^\s]+\.vbs',
+                # Any command line invoking scripts from common temp or user folders
+                r'(AppData|Temp|\\Users\\[^\\]+\\Downloads)\\[^\s]+\.vbs',
+                # Obfuscated script arguments (encoded, random names)
+                r'[a-zA-Z]:\\[^\s]+\\[a-zA-Z0-9_]{5,}\.vbs',
+                # Optional: detect double script use (wscript payload.vbs //B //Nologo)
+                r'\.vbs(\s+//B)?(\s+//NoLogo)?'
                 r'//e:vbscript\s+[^\s]+:script\.vbs',
                 r'echo\s+GetObject\("script:https://[^\s"]+"\)\s+>\s+C:\\Windows\\Temp\\[^\s]+:hi\.js\s+&&\s+wscript\.exe\s+C:\\Windows\\Temp\\[^\s]+:hi\.js'
             ],
@@ -1161,6 +1276,14 @@ class LOLBinDetector:
             
             # powershell.exe patterns
             'powershell.exe': [
+                # Basic: Set-ItemProperty targeting HKCU Run key
+                r'Set-ItemProperty\s+-Path\s+"?HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"?\s+-Name\s+"?[^\s"]+"?\s+-Value\s+"?[^\s"]+"?',
+                # Optional variants with escaped backslashes or different casing
+                r'Set-ItemProperty\s+-Path\s+"?HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"?\s+-Name\s+"?[^\s"]+"?\s+-Value\s+"?[^\s"]+"?',
+                # Regex for New-ItemProperty variant
+                r'New-ItemProperty\s+-Path\s+"?HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"?\s+-Name\s+"?[^\s"]+"?\s+-Value\s+"?[^\s"]+"?',
+                # Match either HKCU or HKLM with Run/RunOnce keys
+                r'(Set|New)-ItemProperty\s+-Path\s+"?HK(?:CU|LM):\\Software\\Microsoft\\Windows\\CurrentVersion\\Run(?:Once)?"?\s+-Name\s+"?[^\s"]+"?\s+-Value\s+"?[^\s"]+"?'
                 r'-ep\s+bypass\s+-command\s+"set-location.+?LoadAssemblyFromPath.+?\.dll;?\[Program\]::Fun\(\)"',
                 r'-ep\s+bypass\s+-command\s+"set-location.+?RegSnapin.+?\.dll;?\[Program\.Class\]::Main\(\)"',
                 r'-ep\s+bypass\s+-command\s+"[^"]*RegSnapin\s+[^\s"]+\.dll\s*;?\s*\[.*?\]::Main\(\)',
@@ -1220,7 +1343,20 @@ class LOLBinDetector:
                 r'-Command\s+Get-Process',
                 r'-Command\s+Get-Service',
                 r'-ExecutionPolicy\s+Restricted',
-                r'-File\s+[A-Za-z]:\\Program\sFiles\\'
+                r'-File\s+[A-Za-z]:\\Program\sFiles\\',
+                # Base64-encoded commands
+                r'-Enc(odedCommand)?\s+[A-Za-z0-9+/=]{20,}',
+                # Obfuscated IEX (Invoke-Expression)
+                r'i\s*[\'+"]?\s*e\s*[\'+"]?\s*x',  # i e x, i'e'x, i"+"e"+"x", etc.
+                # Obfuscated Invoke-Expression
+                r'(i[\'+"]?n[\'+"]?v[\'+"]?o[\'+"]?k[\'+"]?e[\'+"]?-?[\'+"]?e[\'+"]?x[\'+"]?p[\'+"]?r[\'+"]?e[\'+"]?s[\'+"]?s[\'+"]?i[\'+"]?o[\'+"]?n)',
+                # Obfuscated download using Invoke-WebRequest / Net.WebClient
+                r'(invoke[\'+"]?-[\'+"]?w[\'+"]?e[\'+"]?b[\'+"]?r[\'+"]?e[\'+"]?q[\'+"]?u[\'+"]?e[\'+"]?s[\'+"]?t)',
+                r'new[\s\'+"]*-[\s\'+"]*object[\s\'+"]+net[\s\'+"]*\.[\s\'+"]*webclient',
+                # Suspicious ExecutionPolicy bypass with obfuscation
+                r'-e[\'+"]?x[\'+"]?e[\'+"]?c[\'+"]?u[\'+"]?t[\'+"]?i[\'+"]?o[\'+"]?n[\'+"]?p[\'+"]?o[\'+"]?l[\'+"]?i[\'+"]?c[\'+"]?y\s+[\'+"]?bypass',
+                # Hidden character obfuscation (e.g., Unicode or ASCII codes)
+                r'(Invoke|IEX|DownloadString|FromBase64String|Shellcode)[\x00-\x20]+'
             ],
             'bitsadmin.exe': [
                 r'/transfer\s+WindowsUpdate',
@@ -1238,6 +1374,16 @@ class LOLBinDetector:
                 r'/node:localhost\s+process\s+list\s+brief'
             ],
             'msbuild.exe': [
+                # Basic execution of a .proj or .targets file
+                r'\s+[^\s]+\.(proj|targets)',
+                # Match common suspicious directory paths (temp, downloads, etc.)
+                r'(AppData|Temp|\\Users\\[^\\]+\\Downloads)\\[^\s]+\.(proj|targets)',
+                # Execution of known malicious MSBuild inline tasks (C#, base64, etc.)
+                r'<Task\s+.*?Code\s*=\s*".*?(base64|System\.Reflection|System\.Diagnostics)',
+                # Encoded or obfuscated inline C# code pattern inside a proj file
+                r'(System\.IO|System\.Net|System\.Diagnostics|FromBase64String)'
+                # Match optional quiet flags
+                r'/nologo\s+/verbosity:(quiet|minimal)'
                 r'/t:Restore',
                 r'/t:Rebuild',
                 r'/p:Configuration=Release'
@@ -1261,338 +1407,72 @@ class LOLBinDetector:
                 self.logger.error(f"Invalid pattern for {binary}: {str(e)}")
         return combined
 
+    def _create_severity_map(self):
+        """Create severity mapping for different LOLBins"""
+        severity_map = {
+            'powershell.exe': 'high',  # Keep as high severity for aggressive detection
+            'cmd.exe': 'medium',
+            'rundll32.exe': 'high',
+            'regsvr32.exe': 'high',
+            'msbuild.exe': 'high',
+            'msiexec.exe': 'medium',
+            'certutil.exe': 'high',
+            'bitsadmin.exe': 'medium',
+            'wmic.exe': 'medium',
+            'wsl.exe': 'high',
+            'winrm.exe': 'high',
+            'pubprn.vbs': 'high',
+            'SyncAppvPublishingServer.vbs': 'high',
+            'Launch-VsDevShell.ps1': 'high',
+            'Pester.bat': 'high'
+        }
+        return severity_map
 
     def detect(self, process_name, command_line):
-        """Ultra-fast detection with O(1) complexity per binary"""
-        binary = process_name.lower()
-        cache_key = f"{binary}:{command_line[:100]}"
+        # Defensive: Ensure process_name and command_line are strings
+        process_name = str(process_name) if process_name else ''
+        command_line = str(command_line) if command_line else ''
         
+        # Check cache first
+        cache_key = f"{process_name}:{command_line}"
         if cache_key in self.cache:
             return self.cache[cache_key]
-            
-        result = self._perform_detection(binary, command_line)
         
+        detected = False
+        matched_pattern = None
+        severity = 'low'  # Default to low if not in severity_map
+        
+        process_lower = process_name.lower()
+        # Only check binaries in the severity map for speed
+        if process_lower in self.severity_map and process_lower in self.malicious_combined:
+            try:
+                # Check if command line matches any LOLBin pattern
+                if self.malicious_combined[process_lower].search(command_line):
+                    # Check if it's whitelisted
+                    if process_lower in self.whitelist_combined:
+                        if self.whitelist_combined[process_lower].search(command_line):
+                            # Whitelisted - not detected
+                            result = {'detected': False, 'matched_pattern': None, 'severity': 'low'}
+                            self.cache[cache_key] = result
+                            return result
+                    
+                    # Not whitelisted - detected
+                    detected = True
+                    matched_pattern = f"LOLBin pattern for {process_name}"
+                    severity = self.severity_map.get(process_lower, 'medium')
+            except Exception as e:
+                import logging
+                logging.error(f"Error in LOLBin detection for {process_name}: {e}")
+        
+        result = {'detected': detected, 'matched_pattern': matched_pattern, 'severity': severity} if detected else {'detected': False}
+        
+        # Cache the result
         if len(self.cache) >= self.cache_size:
+            # Remove oldest entry
             self.cache.pop(next(iter(self.cache)))
         self.cache[cache_key] = result
+        
         return result
-
-    def _create_severity_map(self):
-        """Determine severity rating based on binary's potential for abuse.
-        
-        Args:
-            binary (str): Name of the binary being checked (lowercase)
-            
-        Returns:
-            str: Severity rating ('critical', 'high', 'medium', 'low')
-        """
-        severity_map = {
-            
-            "AddinUtil.exe": "medium",         # .NET execution, proxy technique
-            "AppInstaller.exe": "high",        # Used for downloading executable payloads
-            "Aspnet_Compiler.exe": "medium",   # Bypasses application whitelisting
-            "At.exe": "high",                  # Scheduled task execution
-            "Atbroker.exe": "high",            # Executes arbitrary EXEs
-            "Bash.exe": "medium",              # Indirect/obfuscated command execution
-            "Bitsadmin.exe": "high",           # Download, alternate data streams, proxy exec
-            "CertOC.exe": "high",              # DLL execution + download
-            "CertReq.exe": "medium",           # Used for data transfer (exfil/infil)
-            "Certutil.exe": "high", 
-            "Cipher.exe": "high",              # Data destruction (T1485)
-            "Cmd.exe": "high",                 # Core LOLBin for download, exfil, NTFS abuse
-            "Cmdkey.exe": "high",              # Credentials access (T1078)
-            "Cmdl32.exe": "high",              # File download
-            "Cmstp.exe": "high",               # INF-based AWL bypass + remote execution
-            "Colorcpl.exe": "medium",          # Legitimate disguise (T1036.005)
-            "ComputerDefaults.exe": "high",    # UAC bypass (T1548.002)
-            "ConfigSecurityPolicy.exe": "high",# Exfil and download via web service
-            "Conhost.exe": "medium",           # Executes other shells
-            "Control.exe": "high",             # DLL execution (T1218.002)
-            "Csc.exe": "medium",
-            "Cscript.exe": "high",                  # WSH + ADS abuse
-            "CustomShellHost.exe": "medium",        # Proxy execution
-            "DataSvcUtil.exe": "high",              # Upload/exfil
-            "Desktopimgdownldr.exe": "high",        # Ingress tool transfer
-            "DeviceCredentialDeployment.exe": "high",  # Hide artifacts
-            "Dfsvc.exe": "high",                    # Remote ClickOnce bypass
-            "Diantz.exe": "high",                   # Download, compression + ADS
-            "Diskshadow.exe": "high",               # NTDS dump + cmd exec
-            "Dnscmd.exe": "medium",                 # DLL injection for service
-            "Esentutl.exe": "high",                 # NTDS + download + ADS
-            "Eventvwr.exe": "high",                 # UAC bypass
-            "Expand.exe": "medium",                 # Download + ADS (less abused)
-            "Explorer.exe": "medium",               # EXE execution (normal use too)
-            "Extexport.exe": "medium",              # DLL execution
-            "Extrac32.exe": "high",                 # Compression + download + ADS
-            "Findstr.exe": "medium",                # Text tools, possible ADS abuse
-            "Finger.exe": "medium",                 # Simple download, rare use
-            "FltMC.exe": "high",                    # Tool tampering
-            "Forfiles.exe": "medium",               # Indirect EXE exec + ADS
-            "Fsutil.exe": "high",                   # Data destruction + system abuse
-            "Ftp.exe": "medium",                    # Legit but abusable for download
-            "Gpscript.exe": "medium",               # CMD execution via system tool
-            "Hh.exe": "high",                       # GUI+remote EXE exec
-            "IMEWDBLD.exe": "high",                 # INetCache download
-            "Ie4uinit.exe": "medium",               # INF abuse, rare
-            "iediagcmd.exe": "medium",
-            "Ieexec.exe": "high",                  # Remote EXE execution + transfer
-            "Ilasm.exe": "medium",                 # Compilation (low abuse frequency)
-            "Infdefaultinstall.exe": "medium",     # INF execution
-            "Installutil.exe": "high",             # DLL/EXE execution + AWL bypass
-            "Jsc.exe": "medium",                   # JS compiler
-            "Ldifde.exe": "medium",                # Download (infiltration)
-            "Makecab.exe": "high",                 # Compression + ADS + masquerade
-            "Mavinject.exe": "high",               # DLL injection + ADS
-            "Microsoft.Workflow.Compiler.exe": "medium", # Used for XOML execution
-            "Mmc.exe": "high",                     # DLL UAC bypass + GUI download
-            "MpCmdRun.exe": "medium",              # ADS and file transfers (AV tool abuse)
-            "Msbuild.exe": "high",                 # C# AWL bypass + DLL/XSL/CMD execution
-            "Msconfig.exe": "medium",              # Normal tool but abusable for CMD
-            "Msdt.exe": "high",                    # MSI/CMD AWL bypass + GUI tricks
-            "Msedge.exe": "medium",
-             "Mshta.exe": "high",                  # Remote execution, HTA abuse, ADS
-            "Msiexec.exe": "high",                # MSI/DLL remote execution
-            "Netsh.exe": "high",                  # DLL helper execution, C2 tunneling
-            "Ngen.exe": "medium",                 # Download (can assist staging)
-            "Odbcconf.exe": "high",               # DLL execution abuse
-            "OfflineScannerShell.exe": "medium",  # Can proxy DLLs
-            "OneDriveStandaloneUpdater.exe": "medium",  # Download abuse
-            "Pcalua.exe": "medium",               # EXE/DLL launch, less frequent abuse
-            "Pcwrun.exe": "medium",               # Indirect execution
-            "Pktmon.exe": "medium",               # Recon + packet sniffing
-            "Pnputil.exe": "high",                # Persistence via driver INF
-            "Presentationhost.exe": "high",       # XBAP execution + download
-            "Print.exe": "medium",                # ADS manipulation
-            "PrintBrm.exe": "high",               # Compression + ADS + staging
-            "Provlaunch.exe": "medium",           # Indirect execution
-            "Psr.exe": "medium",                  # Screen capture
-            "Rasautou.exe": "high",               # DLL execution
-            "rdrleakdiag.exe": "high",                        "Reg.exe": "high",                    # Credential access + ADS abuse
-            "Regasm.exe": "high",                 # DLL execution + AWL bypass
-            "Regedit.exe": "medium",              # ADS, but also common admin tool
-            "Regini.exe": "medium",               # ADS abuse (niche)
-            "Register-cimprovider.exe": "medium", # DLL proxy execution
-            "Regsvcs.exe": "high",                # Same abuse as Regasm (AWL bypass)
-            "Regsvr32.exe": "high",               # Remote SCT execution, AWL bypass
-            "Replace.exe": "medium",              # File replacement (download/copy)
-            "Rpcping.exe": "high",                # Credential access via forced auth
-            "Rundll32.exe": "high",               # Classic DLL execution, JScript, ADS
-            "Runexehelper.exe": "medium",         # System EXE launcher
-            "Runonce.exe": "medium",              # Execution at login (persistable)
-            "Runscripthelper.exe": "high",        # PowerShell execution
-            "Sc.exe": "medium",                       # Legit binary but can proxy execution
-            "Schtasks.exe": "high",               # Scheduled task execution
-            "Scriptrunner.exe": "high",           # Remote EXE execution
-            "Setres.exe": "medium",               # System binary execution
-            "SettingSyncHost.exe": "medium",      # CMD/EXE execution
-            "Sftp.exe": "medium",                 # File transfer via cmd
-            "ssh.exe": "medium",                  # Remote shell access
-            "Stordiag.exe": "medium",             # Executes other EXEs
-            "SyncAppvPublishingServer.exe": "high",  # PowerShell execution
-            "Tar.exe": "medium",                  # ADS + compression
-            "Ttdinject.exe": "high",              # EXE execution + injection potential
-            "Tttracer.exe": "high",               # EXE + dumping (NTDS/creds)
-            "Unregmp2.exe": "medium",             # Indirect execution
-            "vbc.exe": "medium",                  # .NET compiler abuse
-            "Verclsid.exe": "medium",             # COM proxy execution
-            "Wab.exe": "high",                    # DLL execution
-            "wbadmin.exe": "high",                # NTDS backup/dump abuse
-            "wbemtest.exe": "medium",             # WMI GUI and command exec
-            "winget.exe": "high",                 # Download + execution + AWL bypass
-            "Wlrmdr.exe": "medium" , 
-            "Wmic.exe": "high",                   # ADS, remote XSL, copy/download abuse
-            "WorkFolders.exe": "medium",          # Proxy EXE execution
-            "Wscript.exe": "high",                # ADS + WSH script execution
-            "Wsreset.exe": "high",                # UAC bypass
-            "wuauclt.exe": "high",                # DLL execution
-            "Xwizard.exe": "high",                # COM execution + download
-            "msedge_proxy.exe": "medium",         # CMD + download via Edge
-            "msedgewebview2.exe": "medium",       # Electron execution path
-            "wt.exe": "medium",                   # CMD launcher, Windows Terminal abuse
-            # DLLs (LOLLibs)
-            "Advpack.dll": "high",                # AWL bypass + DLL/INF exec
-            "Desk.cpl": "high",                   # Control panel CPL + remote exec
-            "Dfshim.dll": "high",                 # Remote ClickOnce AWL bypass
-            "Ieadvpack.dll": "high",              # AWL bypass + INF execution
-            "Ieframe.dll": "medium",              # URL execution, less direct
-            "Mshtml.dll": "high",                 # HTA rendering/execution
-            "Pcwutl.dll": "medium",               # Proxy execution
-            "Scrobj.dll": "high",                 # Download + COM scripting
-            "Setupapi.dll": "high",               # INF execution + AWL bypass
-            "Shdocvw.dll": "medium",              # Legacy URL handler
-            "Shell32.dll": "high",                    # Execution of EXE/CMD/DLL via rundll32
-            
-            "Shimgvw.dll": "medium",               # Download only (INetCache)
-            "Syssetup.dll": "high",                # INF execution + AWL bypass
-            "Url.dll": "high",                     # HTA/URL/EXE execution
-            "Zipfldr.dll": "medium",               # EXE execution via rundll32
-            "Comsvcs.dll": "high",                 # LSASS memory dumping
-
-            # Other Microsoft-signed binaries
-            "AccCheckConsole.exe": "high",         # DLL (.NET) execution + AWL bypass
-            "adplus.exe": "high",                  # LSASS dump + EXE exec
-            "AgentExecutor.exe": "high",           # Executes PowerShell + EXE
-            "AppCert.exe": "high",                 # MSI and EXE execution
-            "Appvlp.exe": "medium",                # CMD/EXE exec via App-V (less abused)
-            "Bginfo.exe": "high",                  # Remote/WSH exec + AWL bypass
-            "Cdb.exe": "high",                     # Shellcode, CMD execution
-            "coregen.exe": "high",                 # DLL execution + process injection
-            "Createdump.exe": "high",              # Memory/credential dump
-            "csi.exe": "medium",                   # CSharp execution
-            "DefaultPack.EXE": "medium",           # CMD execution (low abuse)
-            "Devinit.exe": "high",                  # MSI/remote execution
-             "Devtoolslauncher.exe": "medium",      # CMD execution (less common)
-            "dnx.exe": "medium",                   # CSharp execution
-            "Dotnet.exe": "high",                  # DLL + scripting + AWL bypass
-            "dsdbutil.exe": "high",                # NTDS dump
-            "dtutil.exe": "medium",                # Copy/data staging
-            "Dump64.exe": "high",                  # LSASS dump
-            "DumpMinitool.exe": "high",            # LSASS dump
-            "Dxcap.exe": "medium",                 # EXE execution
-            "ECMangen.exe": "medium",              # Download (staging)
-            "Excel.exe": "medium",                 # Download abuse (used in macro chains)
-            "Fsi.exe": "high",                     # F# scripting AWL bypass
-            "FsiAnyCpu.exe": "high",               # Same as above
-            "Mftrace.exe": "medium",               # Proxy EXE launcher
-            "Microsoft.NodejsTools.PressAnyKey.exe": "medium",  # Custom EXE exec
-            "MSAccess.exe": "medium",              # Download via Office abuse
-            "Msdeploy.exe": "high",                # CMD exec + download + AWL bypass
-            "MsoHtmEd.exe": "medium",               # Download, niche abuse
-             "Mspub.exe": "medium",                # Office-based download vector
-            "msxsl.exe": "high",                  # XSL exec, ADS, remote abuse, AWL bypass
-            "ntdsutil.exe": "high",               # NTDS dump tool
-            "OpenConsole.exe": "medium",          # Indirect EXE execution
-            "Powerpnt.exe": "medium",             # PowerPoint download vector
-            "Procdump.exe": "high",               # DLL injection, dump tool
-            "ProtocolHandler.exe": "medium",      # Download, less abused
-            "rcsi.exe": "high",                   # AWL bypass via CSharp
-            "Remote.exe": "high",                 # Remote EXE + AWL bypass
-            "Sqldumper.exe": "high",              # LSASS/credential dump
-            "Sqlps.exe": "high",                  # PowerShell via SQL
-            "SQLToolsPS.exe": "high",             # PowerShell abuse
-            "Squirrel.exe": "high",               # AWL bypass via Nuget + remote execution
-            "te.exe": "medium",                   # Custom format WSH/DLL execution
-            "Teams.exe": "medium",                 # Electron app execution abuse (Node.js)
-            "TestWindowRemoteAgent.exe": "high",       # Exfiltration capability
-            "Tracker.exe": "high",                     # DLL execution + AWL bypass
-            "Update.exe": "high",                      # Download, persistence, indicator removal
-            "VSDiagnostics.exe": "medium",             # EXE/CMD execution
-            "VSIISExeLauncher.exe": "medium",          # EXE launcher
-            "Visio.exe": "medium",                     # Download (Office vector)
-            "VisualUiaVerifyNative.exe": "medium",     # .NET AWL bypass
-            "VSLaunchBrowser.exe": "high",             # EXE/remote launch + download
-            "Vshadow.exe": "medium",                   # EXE execution, less abused
-            "vsjitdebugger.exe": "medium",             # EXE launch
-            "WFMFormat.exe": "medium",                 # .NET EXE launch
-            "Wfc.exe": "high",                         # XOML AWL bypass
-            "WinProj.exe": "medium",                   # Office-based download
-            "Winword.exe": "medium",                   # Macro/download vector
-            "Wsl.exe": "high",                         # Remote EXE/CMD + download
-            "XBootMgrSleep.exe": "medium",             # CMD execution, niche
-            "devtunnel.exe": "medium",                  # Download, tunnel staging
-            "vsls-agent.exe": "high",             # DLL execution
-            "vstest.console.exe": "high",         # AWL bypass with DLLs
-            "winfile.exe": "medium",              # Indirect EXE execution
-            "xsd.exe": "medium",                  # Downloads (less abused)
-
-            # Scripts (T1216)
-            "CL_LoadAssembly.ps1": "high",        # .NET DLL execution
-            "CL_Mutexverifiers.ps1": "high",      # PowerShell proxy
-            "CL_Invocation.ps1": "high",          # CMD execution
-            "Launch-VsDevShell.ps1": "medium",    # Developer shell, EXE exec
-            "Manage-bde.wsf": "medium",           # EXE execution via WSF
-            "Pubprn.vbs": "high",                 # SCT/COM execution via VBScript
-            "Syncappvpublishingserver.vbs": "high",  # PowerShell proxy via VBS
-            "UtilityFunctions.ps1": "high",       # .NET DLL execution
-            "winrm.vbs": "high",                  # CMD/remote + XSL abuse (AWL bypass)
-            "Pester.bat": "medium",                # EXE execution via Batch
-            
-            
-            # Medium - Can be dangerous but requires more specific conditions
-            'at.exe': 'medium',
-            'forfiles.exe': 'medium',
-            'findstr.exe': 'medium',
-            'makecab.exe': 'medium',
-            'expand.exe': 'medium',
-            'extrac32.exe': 'medium',
-            'replace.exe': 'medium',
-            'ftp.exe': 'medium',
-            'finger.exe': 'medium',
-            'type.exe': 'medium',
-            'esentutl.exe': 'medium',
-            'diskshadow.exe': 'medium',
-            'vssadmin.exe': 'medium',
-            'wbadmin.exe': 'medium',
-            
-            # Low - Less commonly abused or requires very specific scenarios
-            'control.exe': 'low',
-            'hh.exe': 'low',
-            'explorer.exe': 'low',
-            'notepad.exe': 'low',
-            'calc.exe': 'low',
-            'mspaint.exe': 'low',
-            'wordpad.exe': 'low',
-            'winword.exe': 'low',
-            'excel.exe': 'low',
-            'powerpnt.exe': 'low',
-            
-            # Office-related binaries
-            'msohtmled.exe': 'medium',
-            'winproj.exe': 'medium',
-            'visio.exe': 'medium',
-            
-            # Development tools
-            'csc.exe': 'high',
-            'vbc.exe': 'high',
-            'ilasm.exe': 'high',
-            'jsc.exe': 'high',
-            'dotnet.exe': 'high',
-            
-            # Debugging tools
-            'cdb.exe': 'high',
-            'windbg.exe': 'high',
-            'procdump.exe': 'high',
-        }
-        
-        return 'critical'
-            
-        return severity_map.get(binary, 'medium')
-    
-
-    def _perform_detection(self, binary, command_line):
-        """Core detection logic with combined pattern matching"""
-        # Check whitelist
-        if binary == "openconsole.exe":
-            return None
-        if binary in self.whitelist_combined:
-            if self.whitelist_combined[binary].search(command_line):
-                return None
-
-        # Check for known malicious patterns
-        if binary in self.malicious_combined:
-            match = self.malicious_combined[binary].search(command_line)
-            if match:
-                # Find which exact pattern matched using group indexing
-                matched_pattern = next(
-                    (p for i, p in enumerate(self.patterns[binary]) if match.group(i + 1)),
-                    None
-                )
-                base_severity = self.severity_map.get(binary, 'high')
-                if binary in ('msedge.exe', 'msedgewebview2.exe', 'teams.exe') and '--gpu-launcher' in command_line:
-                    final_severity = 'critical'
-                else:
-                    final_severity = base_severity
-
-                return {
-                    'detected': True,
-                    'binary': binary,
-                    'matched_pattern': matched_pattern,
-                    'severity': final_severity,
-                    'timestamp': datetime.now().isoformat()
-                }
-
-        # If no match
-        return None
 
     def flush_cache(self):
         self.cache.clear()
